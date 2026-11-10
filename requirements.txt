@@ -1,0 +1,11 @@
+chess>=1.10
+pandas>=2.0
+pyarrow>=14
+pyyaml>=6
+zstandard>=0.22
+requests>=2.31
+tqdm>=4.66
+numpy>=1.26
+scipy>=1.11
+scikit-learn>=1.4
+# Added later (feature extraction / SAE): torch (CUDA build from pytorch.org), maia3

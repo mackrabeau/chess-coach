@@ -1,0 +1,64 @@
+# All paths are relative to the project root (the folder containing configs/),
+# unless absolute. Use forward slashes on Windows too.
+
+paths:
+  data_dir: data
+  # Official Windows build, x86-64-avx2 (Ryzen 5 3600 supports AVX2).
+  stockfish: D:\chess\chess-coach\chess-coach\stockfish\stockfish-windows-x86-64-universal.exe
+  # A Lichess monthly dump from https://database.lichess.org (.pgn.zst, streamed, never unpacked).
+  lichess_dump: data/raw/lichess_db_standard_rated_2026-09.pgn.zst
+
+player:
+  username: bananaman987654321
+  time_class: rapid
+  rated_only: true
+  # Rating climbed a lot; only diagnose the current player.
+  min_player_rating: 1750
+
+population:
+  # Lichess-equivalent of the player's chess.com rapid rating. Starting guess; calibrate later.
+  rating_center: 2100
+  rating_halfwidth: 100
+  # Positions kept for SAE training (all) and for the Stockfish pass (random subset).
+  sae_target_positions: 1500000
+  engine_target_positions: 20000
+  # Cap per game so a few long games don't dominate.
+  max_positions_per_game: 12
+  seed: 0
+
+filters:
+  # Lichess speed buckets use estimated duration = base + 40 * increment (seconds).
+  rapid_min_est_seconds: 480
+  rapid_max_est_seconds: 1500
+  min_ply: 20            # skip the first 10 moves (opening memorization)
+  min_game_plies: 30     # skip very short games
+  min_clock_seconds: 30  # skip time-pressure moves (mover's clock before moving)
+  history_plies: 7       # previous positions stored with each decision (Maia-3 uses current + 7)
+
+engine:
+  nodes: 1000000         # per search; drop to 300000 if too slow
+  workers: 10            # parallel single-threaded Stockfish processes (6c/12t CPU)
+  hash_mb: 64
+  pv_plies: 6            # MUST be even: end position has the same side to move as the root
+  extend_nodes: 100000   # used to extend PVs that come back shorter than pv_plies
+  chunk_size: 100        # positions per work unit / output part file
+  # Win-probability thresholds (side to move perspective).
+  ok_loss: 0.03
+  blunder_loss: 0.20
+  critical_gap: 0.10     # best move beats 2nd best by at least this much
+
+ideas:
+  n_atoms: 30            # final dictionary size
+  sweep: [15, 20, 30, 50]  # also fit these to see how many atoms are stable at each size
+  min_norm: 0.5          # drop near-identical lines (scaled feature units)
+  stable_cos: 0.7        # atom must reappear in both halves with cosine >= this
+  alpha_W: 0.0           # extra L1 sparsity on codes (0 = plain NMF)
+  seed: 0
+
+report:
+  top_positions: 10      # example positions per idea in the inspection report
+  player_top_ideas: 5    # ideas shown in the player report
+  player_examples: 6     # your own positions per idea
+  drills: 8              # population positions per idea, as puzzles
+  bootstrap: 300         # resamples (over games) for the player's confidence intervals
+  prior_strength: 10     # pseudo-counts pulling your critical miss rate toward the population

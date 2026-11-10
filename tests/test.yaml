@@ -1,0 +1,49 @@
+paths:
+  data_dir: tests/data
+  stockfish: C:/tools/stockfish/stockfish-windows-x86-64-avx2.exe
+  lichess_dump: tests/data/raw/fake.pgn.zst
+player:
+  username: bananaman987654321
+  time_class: rapid
+  rated_only: true
+  min_player_rating: 1750
+population:
+  rating_center: 2100
+  rating_halfwidth: 100
+  sae_target_positions: 1500
+  engine_target_positions: 1500
+  max_positions_per_game: 12
+  seed: 0
+filters:
+  rapid_min_est_seconds: 480
+  rapid_max_est_seconds: 1500
+  min_ply: 20
+  min_game_plies: 30
+  min_clock_seconds: 30
+  history_plies: 7
+engine:
+  nodes: 20000
+  workers: 2
+  hash_mb: 64
+  pv_plies: 6
+  extend_nodes: 5000
+  chunk_size: 10
+  ok_loss: 0.03
+  blunder_loss: 0.2
+  critical_gap: 0.1
+ideas:
+  n_atoms: 6
+  sweep:
+  - 4
+  - 6
+  min_norm: 0.5
+  stable_cos: 0.7
+  alpha_W: 0.0
+  seed: 0
+report:
+  top_positions: 10
+  player_top_ideas: 5
+  player_examples: 6
+  drills: 8
+  bootstrap: 50
+  prior_strength: 10
