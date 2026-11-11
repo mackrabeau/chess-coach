@@ -36,6 +36,11 @@ python scripts/02_engine_lines.py --set population
 # 5. Compare your loss profile to the peer band (rating calibration)
 python scripts/02b_engine_summary.py
 
+# 5b. Extend every line until its end position is quiet (no pending recapture,
+#     check or only-move). Cheap searches; resumable like 02.
+python scripts/03_settle_lines.py --set player
+python scripts/03_settle_lines.py --set population
+
 # 6. Feature deltas along the engine lines (a few minutes each)
 python scripts/05_build_deltas.py --set population
 python scripts/05_build_deltas.py --set player
@@ -92,8 +97,10 @@ python scripts/01_mine_population.py --config tests/test.yaml
 python scripts/00_fetch_player.py --config tests/test.yaml --offline
 python scripts/02_engine_lines.py --config tests/test.yaml --set population
 python scripts/02b_engine_summary.py --config tests/test.yaml
+python scripts/03_settle_lines.py --config tests/test.yaml --set population
 python scripts/05_build_deltas.py --config tests/test.yaml --set population
 python scripts/02_engine_lines.py --config tests/test.yaml --set player
+python scripts/03_settle_lines.py --config tests/test.yaml --set player
 python scripts/05_build_deltas.py --config tests/test.yaml --set player
 python scripts/06_learn_ideas.py --config tests/test.yaml
 python scripts/07_inspect_ideas.py --config tests/test.yaml

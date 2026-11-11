@@ -62,3 +62,10 @@ report:
   drills: 8              # population positions per idea, as puzzles
   bootstrap: 300         # resamples (over games) for the player's confidence intervals
   prior_strength: 10     # pseudo-counts pulling your critical miss rate toward the population
+
+quiesce:                 # 03_settle_lines.py: extend lines until the end position is quiet
+  use: true              # 05 onwards use the settled lines (once 03 has covered every position)
+  nodes: 100000          # per search while extending
+  max_extra_plies: 8     # MUST be even
+  forced_gap: 0.15       # "only move": best beats 2nd best by >= this win prob -> keep going
+  forced_max_legal: 2    # <= this many legal moves -> keep going

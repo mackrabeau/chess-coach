@@ -48,6 +48,20 @@ RESULT_SCHEMA = pa.schema(
 )
 
 
+LINES = ("best", "played", "alt")
+
+# Output of the settling pass (03_settle_lines.py): each line extended until quiet.
+SETTLE_SCHEMA = pa.schema(
+    [("pos_id", pa.string()), ("error", pa.string())]
+    + [f for L in LINES for f in (
+        (f"{L}_line_q", pa.list_(pa.string())),  # original line + extension (even length)
+        (f"{L}_q_plies", pa.int32()),             # plies added
+        (f"{L}_q_trigger", pa.string()),          # why the first extension was needed ("" = already quiet)
+        (f"{L}_q_end", pa.string()),              # quiet / cap / game_over / short
+    )]
+)
+
+
 def win_prob(cp: float) -> float:
     """Lichess win-probability model, in [0, 1], from the side to move."""
     return 1.0 / (1.0 + math.exp(-0.00368208 * cp))
@@ -58,8 +72,9 @@ def _cp(score: chess.engine.PovScore, pov: chess.Color) -> int:
 
 
 class Analyzer:
-    def __init__(self, ecfg: dict, stockfish_path: str):
+    def __init__(self, ecfg: dict, stockfish_path: str, qcfg: dict | None = None):
         self.ecfg = ecfg
+        self.qcfg = qcfg
         self.path = stockfish_path
         if ecfg["pv_plies"] % 2:
             raise ValueError("engine.pv_plies must be even (end position must have the root's side to move)")
@@ -180,3 +195,69 @@ class Analyzer:
             "alt_line_complete": alt_complete,
             "n_legal": n_legal,
         }
+
+    # ------------------------------------------------------------------ settling pass
+
+    def _unsettled(self, b: chess.Board, game) -> tuple[str, chess.Move]:
+        """(reason this position is not quiet, or "", engine's move here).
+
+        Not quiet if: in check; few legal moves (forced); the engine's move is a capture,
+        promotion or check; or it's an "only move" (beats the 2nd best by >= forced_gap).
+        """
+        q = self.qcfg
+        n = b.legal_moves.count()
+        infos = self._analyse(b, q["nodes"], game, multipv=min(2, n))
+        mv = infos[0]["pv"][0]
+        if b.is_check():
+            return "in_check", mv
+        if n <= q["forced_max_legal"]:
+            return "few_moves", mv
+        if b.is_capture(mv) or mv.promotion or b.gives_check(mv):
+            return "tactical", mv
+        if len(infos) > 1 and infos[1].get("pv"):
+            stm = b.turn
+            gap = win_prob(_cp(infos[0]["score"], stm)) - win_prob(_cp(infos[1]["score"], stm))
+            if gap >= q["forced_gap"]:
+                return "only_move", mv
+        return "", mv
+
+    def settle_line(self, fen: str, line: list[str], game) -> dict:
+        """Extend `line` with engine moves, two plies at a time, until the end position
+        (root's side to move) is quiet, or max_extra_plies is reached."""
+        if len(line) < 2:
+            return {"line": list(line), "plies": 0, "trigger": "", "end": "short"}
+        b = chess.Board(fen)
+        for u in line:
+            b.push_uci(u)
+        ext: list[chess.Move] = []
+        trigger, end = "", "quiet"
+        while True:
+            if b.is_game_over(claim_draw=True):
+                end = "game_over"
+                break
+            reason, mv = self._unsettled(b, game)
+            if len(ext) % 2 == 0:  # root's side to move: allowed to stop here
+                if not reason:
+                    break
+                if not ext:
+                    trigger = reason
+            if len(ext) >= self.qcfg["max_extra_plies"]:
+                end = "cap"
+                break
+            b.push(mv)
+            ext.append(mv)
+        if len(ext) % 2:
+            ext.pop()  # keep the root's side to move at the end
+        return {"line": list(line) + [m.uci() for m in ext], "plies": len(ext),
+                "trigger": trigger, "end": end}
+
+    def settle_position(self, fen: str, lines: dict[str, list[str]]) -> dict:
+        game = object()  # one ucinewgame per position
+        out = {}
+        for L in LINES:
+            r = self.settle_line(fen, lines[L], game)
+            out[f"{L}_line_q"] = r["line"]
+            out[f"{L}_q_plies"] = r["plies"]
+            out[f"{L}_q_trigger"] = r["trigger"]
+            out[f"{L}_q_end"] = r["end"]
+        return out

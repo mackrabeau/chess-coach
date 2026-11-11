@@ -47,3 +47,9 @@ report:
   drills: 8
   bootstrap: 50
   prior_strength: 10
+quiesce:
+  use: true
+  nodes: 5000
+  max_extra_plies: 8
+  forced_gap: 0.15
+  forced_max_legal: 2

@@ -27,15 +27,23 @@ Owner: Mack (chess.com `bananaman987654321`, rapid ~1922, 1,652 rapid games; cli
 | `00_fetch_player.py [--offline]` | chess.com public API → player's moves (rapid, rated, rating ≥ 1750, ply ≥ 20, clock ≥ 30 s) | `data/player/positions.parquet`, `data/player/archives/*.json` |
 | `01_mine_population.py` | streams Lichess `.pgn.zst` (never unpacked), header filters first; stops at target | `data/population/positions_sae.parquet` (1.5M), `positions_engine.parquet` (~20k) |
 | `02_engine_lines.py --set {player,population} [--limit N]` | Stockfish, multiprocess, **resumable** (atomic part files, skips done pos_ids) | `data/<set>/engine/part-*.parquet` |
+| `03_settle_lines.py --set ... [--limit N]` | extends best/played/alt lines 2 plies at a time (100k nodes) while the end is not quiet: in check, ≤2 legal moves, engine move is capture/promo/check, or only-move (gap ≥ 0.15 wp); cap +8 plies. Resumable. `load_analyzed` swaps these in when `quiesce.use` (raw kept in `*_line_raw`; refuses partial coverage) | `data/<set>/engine_q/part-*.parquet` |
 | `02b_engine_summary.py` | player vs peer loss profile (rating calibration) | stdout |
 | `05_build_deltas.py --set ...` | features at root + PV ends → F0, dB, dP, dA (NaN if line < 2 plies) | `data/<set>/deltas.npz` |
 | `06_learn_ideas.py` | scale by pooled Δ std, NMF sweep + stability | `data/ideas/model.pkl` (IdeaModel), `sweep.csv`, `pop_codes.npz` |
+| `06b_check_line_ends.py [--raw]` | per atom: pending-recapture rate at line ends, material gap best vs played | stdout |
 | `07_inspect_ideas.py` | HTML per idea with top peer positions | `data/ideas/ideas_report.html` |
 | `08_player_report.py` | player leak / miss rates vs peers, own positions + drills | `data/player/player_report.html` |
 
 Key modules: `coach/mine.py` (position extraction, parquet schema incl. 7-ply `history_fens` for Maia), `coach/engine.py` (Analyzer, `RESULT_SCHEMA`), `coach/ideas.py` (IdeaModel, NMF, stability), `coach/results.py` (`load_analyzed`, `load_with_deltas`), `coach/report.py` (HTML/SVG boards). `pos_id = "{source}:{game_id}:{ply}"` joins everything.
 
 Engine output per position: best_move, cp_best, cp_played, alt_move/cp_alt (2nd best), wp_*, wp_loss, label, critical, played_is_best, best_line/played_line/alt_line (UCI, length `pv_plies`=6, trimmed to even if game ends), *_complete flags. Evals from the mover's POV; each position starts with `ucinewgame` (hash cleared, order-independent).
+
+## Status (2026-11-11)
+- Real data: 02 done both sets (player 5,411 @ 3.0 pos/s; population 20,120 @ 2.8 pos/s, 1M nodes). 02b: player mean wp_loss 0.037 vs peers 0.041, blunders equal (0.055), but best-move 0.404 vs 0.430 and critical-found 0.701 vs 0.734. Mixed, ~1-1.7σ: band kept at 2100. 05/06/07/08 ran.
+- 06 (raw lines): 4,579 mistakes; stable atoms 13/15, 16/20, 22/30, 40/50 (keeps rising, no plateau). ~9 of 22 stable K=30 atoms are piece-count bundles (bishops/knights/queens/rooks; correlated count+pair+mobility features). Line-end check: 25% of mistakes end with a pending recapture, 26% have a ≥2-pawn material gap between best and played ends; bishop/knight atoms ~10-15 pts above baseline on the expected side; positional atoms (king shield, half-open file, development, pawn structure) at baseline. Mack: report "a really good start", grouping not great.
+- Added `03_settle_lines.py` (quiescence pass) + `06b_check_line_ends.py`; tested on fake data (pending 0.25 -> 0.04). Not yet run on real data.
+- 08 on real data listed only 2 ideas where Mack leaks more than peers, both within noise: his overall loss is ~10% below peers, so absolute per-idea leak is mostly lower everywhere. Need a relative (share-of-loss) view.
 
 ## Status (2026-11-10)
 - All scripts above written and tested end to end on fake data (`tests/make_fake_data.py`, `tests/test.yaml`) on Linux. Delta alignment verified against direct recomputation.
@@ -50,9 +58,9 @@ Engine output per position: best_move, cp_best, cp_played, alt_move/cp_alt (2nd 
 - Windows gotchas already handled: spawn-safe multiprocessing (`__main__` guards, top-level workers, `mp.freeze_support()`), `pathlib` everywhere, `zstandard` package for `.zst`.
 
 ## Next steps
-1. Fix Stockfish path → `02 --limit 200` test → `02 --set player` → `02 --set population` (overnight) → `02b` (calibrate band; if shifting, delete `data/population/` and re-mine) → `05` both sets → `06` → `07` → `08`.
+1. `03 --limit 200` → `03` both sets → `05` both → `06` → `06b` (vs `06b --raw`) → `07` → `08`.
 2. **Go/no-go**: in `ideas_report.html`, do ≥ ~1/3 of stable ideas show a recognizable shared idea in most of their top positions? Check `sweep.csv` for how stable-atom count scales with K.
-3. Known weakness: PVs can end mid-exchange, so material-count features can reflect pending recaptures. Fix options: extend lines to a quiet position (no capture/check available), or compare after a short quiescence.
+3. PVs ending mid-exchange: addressed by `03_settle_lines.py` (verify with `06b` on real data).
 4. **Maia-3 SAE features** (plan §4b). Facts checked 2026-11-09:
    - Weights public on Hugging Face (`UofTCSSLab/Maia3-5M/23M/79M`); code `pip install git+https://github.com/CSSLab/maia3` (inference only, AGPL-3.0, commit `1e13597`).
    - **Transcoder weights NOT released** (model card mentions `transcoder.py`, but it's not in the repo). Train our own topK SAE. Reference: `CSSLab/maia2-skill-adaptation` has topK transcoder code for Maia-2.
