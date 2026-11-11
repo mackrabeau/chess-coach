@@ -65,5 +65,7 @@ deep:
 maia:                    # Maia-3 (pip install git+https://github.com/CSSLab/maia3)
   model: 23m             # 5m / 23m / 79m
   player_elo: 2125
+  player_offset: 125
+  surprise: 0.5
   grid: [1100, 2500, 200]
   batch: 16

@@ -31,6 +31,7 @@ import numpy as np
 import pandas as pd
 
 from coach.config import data_dir, load_config
+from coach.difficulty import p_best_own
 from coach.ideas import IdeaModel, move_tracks, shares, track, track_cfg
 from coach.motifs import tactic_labels
 from coach.report import feats_html, page, position_card
@@ -92,6 +93,141 @@ def breakdown(df, tr) -> np.ndarray:
 def per100(df, rows: np.ndarray, cats: pd.Series, names: list[str]) -> np.ndarray:
     loss = df.wp_loss.to_numpy()
     return np.array([100 * loss[rows[cats.to_numpy() == c]].sum() / max(len(df), 1) for c in names])
+
+
+
+DIFF_BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0001]
+
+
+def maia_section(cfg, rcfg, pop, me, tr_pop, tr_me, tl_pop, tl_me, links, B):
+    """Difficulty via Maia (09b): returns (html, console lines), or ("", []) if 09b hasn't run.
+
+    d = P(engine best move) for a player at the mover's own Maia-scale Elo (peers: Lichess
+    rating; you: chess.com rating then + maia.player_offset)."""
+    dpop, dme = p_best_own(cfg, pop, "population"), p_best_own(cfg, me, "player")
+    if dpop is None or dme is None or np.isnan(dme).mean() > 0.1 or np.isnan(dpop).mean() > 0.1:
+        return ("<h2>Difficulty (Maia)</h2><p class='muted'>Run 09b_maia_difficulty.py for both sets "
+                "to get this section.</p>", ["(Maia section skipped: run 09b for both sets)"])
+    mcfg = cfg["maia"]
+    thr = mcfg.get("surprise", 0.5)
+    min_ratio, min_exp, min_n = rcfg.get("min_ratio", 1.25), rcfg.get("min_expected", 5), rcfg.get("min_tactic_n", 10)
+    lines = []
+
+    def err(df):
+        return (df.label.isin(["mistake", "blunder"]) & ~df.played_is_best).to_numpy()
+
+    hit_me, hit_pop = me.played_is_best.to_numpy(), pop.played_is_best.to_numpy()
+    ok_me, ok_pop = np.isfinite(dme), np.isfinite(dpop)
+    rows_me = np.flatnonzero(ok_me)
+
+    # 1. best-move hit rate vs what Maia expects at the mover's level
+    bt = game_bootstrap(me, rows_me, np.stack([hit_me[ok_me], dme[ok_me]], 1).astype(float), B)
+    gap_lo, gap_hi = ci((bt[:, 0] - bt[:, 1]) / 100)
+    act_me, exp_me = hit_me[ok_me].mean(), dme[ok_me].mean()
+    act_pop, exp_pop = hit_pop[ok_pop].mean(), dpop[ok_pop].mean()
+    t1 = ("<table><tr><th></th><th>found the engine's best move</th><th>Maia at the same level expects</th>"
+          "<th>difference</th></tr>"
+          f"<tr><td>you</td><td>{act_me:.1%}</td><td>{exp_me:.1%}</td><td>{act_me - exp_me:+.1%} "
+          f"<span class='muted'>[{gap_lo:+.1%}, {gap_hi:+.1%}]</span></td></tr>"
+          f"<tr><td>peers</td><td>{act_pop:.1%}</td><td>{exp_pop:.1%}</td><td>{act_pop - exp_pop:+.1%}</td></tr></table>")
+    lines.append(f"best move found: you {act_me:.1%} vs Maia-expected {exp_me:.1%} "
+                 f"({act_me - exp_me:+.1%} [{gap_lo:+.1%}, {gap_hi:+.1%}]); peers {act_pop:.1%} vs {exp_pop:.1%}")
+
+    # 2. by difficulty band: error rate and loss
+    e_me, e_pop = err(me), err(pop)
+    loss_me, loss_pop = me.wp_loss.to_numpy(), pop.wp_loss.to_numpy()
+    rows2, labels = [], []
+    for a, b in zip(DIFF_BINS[:-1], DIFF_BINS[1:]):
+        in_me, in_pop = ok_me & (dme >= a) & (dme < b), ok_pop & (dpop >= a) & (dpop < b)
+        labels.append(f"{a:.0%}–{min(b, 1):.0%}")
+        vals = np.stack([in_me, in_me & e_me, (in_me & e_me) * loss_me], 1).astype(float)
+        bb = game_bootstrap(me, np.arange(len(me)), vals, B)
+        rate_lo, rate_hi = ci(bb[:, 1] / np.maximum(bb[:, 0], 1e-9))
+        l_lo, l_hi = ci(bb[:, 2])
+        r_me = (in_me & e_me).sum() / max(in_me.sum(), 1)
+        r_pop = (in_pop & e_pop).sum() / max(in_pop.sum(), 1)
+        lm = 100 * ((in_me & e_me) * loss_me).sum() / len(me)
+        lp = 100 * ((in_pop & e_pop) * loss_pop).sum() / len(pop)
+        exp_n = r_pop * in_me.sum()
+        if exp_n < min_exp:
+            v = "<span class='muted'>too few</span>"
+        elif rate_lo > r_pop and r_me / max(r_pop, 1e-9) >= min_ratio:
+            v = "<span class='down'>clear</span>"
+        elif rate_hi < r_pop and r_me / max(r_pop, 1e-9) <= 1 / min_ratio:
+            v = "<span class='up'>clear</span>"
+        else:
+            v = "<span class='muted'>within noise</span>"
+        rows2.append(f"<tr><td>{labels[-1]}</td><td>{in_me.mean():.0%} / {in_pop.mean():.0%}</td>"
+                     f"<td>{r_me:.1%} <span class='muted'>[{rate_lo:.1%}, {rate_hi:.1%}]</span></td>"
+                     f"<td>{r_pop:.1%}</td><td>{r_me / max(r_pop, 1e-9):.2f}×</td><td>{v}</td>"
+                     f"<td>{lm:.2f} <span class='muted'>[{l_lo:.2f}, {l_hi:.2f}]</span></td><td>{lp:.2f}</td></tr>")
+        lines.append(f"  Maia finds best {labels[-1]:>9s}: share {in_me.mean():4.0%}/{in_pop.mean():4.0%}  "
+                     f"error rate {r_me:5.1%} [{rate_lo:.1%}, {rate_hi:.1%}] vs {r_pop:5.1%}  "
+                     f"loss/100 {lm:.2f} vs {lp:.2f}  {('CLEAR' if 'clear' in v else 'few' if 'few' in v else 'noise')}")
+    t2 = ("<table><tr><th>Maia at your level finds the best move</th><th>share of moves (you / peers)</th>"
+          "<th>your error rate (90% CI)</th><th>peers</th><th>ratio</th><th>vs peers</th>"
+          "<th>your loss / 100 moves</th><th>peers</th></tr>" + "".join(rows2) + "</table>"
+          "<p class='muted'>Error = mistake or blunder. Each peer is measured against Maia at their own "
+          "Lichess rating; you at your chess.com rating at the time + "
+          f"{mcfg.get('player_offset')}.</p>")
+
+    # 3. surprising misses: errors where Maia at your level usually finds the best move
+    def categories(df, tr, tl):
+        cat = np.array([f"{t} mistake" if t in ("positional", "decided") else "" for t in tr], dtype=object)
+        if len(tl):
+            cat[tl.index.to_numpy()] = tl.category.to_numpy()
+        return cat
+
+    c_me, c_pop = categories(me, tr_me, tl_me), categories(pop, tr_pop, tl_pop)
+    s_me = e_me & ok_me & (dme >= thr)
+    s_pop = e_pop & ok_pop & (dpop >= thr)
+    cats = sorted((set(c_pop[s_pop]) | set(c_me[s_me])) - {""})
+    n_pop = np.array([(s_pop & (c_pop == c)).sum() for c in cats])
+    n_me = np.array([(s_me & (c_me == c)).sum() for c in cats])
+    v_me = np.array([100 * loss_me[s_me & (c_me == c)].sum() / len(me) for c in cats])
+    v_pop = np.array([100 * loss_pop[s_pop & (c_pop == c)].sum() / len(pop) for c in cats])
+    oh = np.stack([(s_me & (c_me == c)) * loss_me for c in cats], 1) if cats else np.zeros((len(me), 0))
+    lo3, hi3 = ci(game_bootstrap(me, np.arange(len(me)), oh, B)) if cats else ([], [])
+    expected = n_pop * len(me) / max(len(pop), 1)
+    order = [j for j in np.argsort(-(v_me - v_pop)) if n_pop[j] >= min_n]
+    rows3 = []
+    lines.append(f"surprising misses (Maia at your level finds the best move >= {thr:.0%}), loss per 100 moves:")
+    tot_me = 100 * loss_me[s_me].sum() / len(me)
+    tot_pop = 100 * loss_pop[s_pop].sum() / len(pop)
+    lines.append(f"  total {tot_me:.2f} vs {tot_pop:.2f}  (n {s_me.sum()} / {s_pop.sum()})")
+    for j in order:
+        r = v_me[j] / max(v_pop[j], 1e-9)
+        if expected[j] < min_exp:
+            v = "too few"
+        elif lo3[j] > v_pop[j] and r >= min_ratio:
+            v = "clear"
+        elif hi3[j] < v_pop[j] and r <= 1 / min_ratio:
+            v = "clear"
+        else:
+            v = "within noise"
+        cls = "muted" if v != "clear" else ("down" if r > 1 else "up")
+        rows3.append(f"<tr><td>{html.escape(cats[j])}</td><td>{v_me[j]:.2f} <span class='muted'>"
+                     f"[{lo3[j]:.2f}, {hi3[j]:.2f}]</span></td><td>{v_pop[j]:.2f}</td><td>{r:.2f}×</td>"
+                     f"<td><span class='{cls}'>{v}</span></td><td>{n_me[j]} <span class='muted'>"
+                     f"(exp. {expected[j]:.0f})</span></td><td>{n_pop[j]}</td></tr>")
+        lines.append(f"  {cats[j]:34s} {v_me[j]:5.2f} [{lo3[j]:.2f}, {hi3[j]:.2f}] vs {v_pop[j]:5.2f}  "
+                     f"{r:.2f}x  {v:12s} n {n_me[j]} (exp {expected[j]:.0f}) / {n_pop[j]}")
+    t3 = ("<table><tr><th>surprising miss</th><th>you, per 100 moves (90% CI)</th><th>peers</th><th>ratio</th>"
+          "<th>vs peers</th><th>your n</th><th>peer n</th></tr>" + "".join(rows3) + "</table>"
+          f"<p class='muted'>Surprising miss = a mistake or blunder in a position where Maia at your level "
+          f"finds the engine's best move at least {thr:.0%} of the time. Total: you {tot_me:.2f} vs peers "
+          f"{tot_pop:.2f} per 100 moves.</p>")
+
+    # your worst surprising misses
+    ids = np.flatnonzero(s_me)
+    ids = ids[np.argsort(-loss_me[ids])][: rcfg["player_examples"]]
+    cards = "".join(position_card(me.iloc[i], link=links.get(me.game_id.iat[i]),
+                                  note=f"Maia at your level finds the best move {dme[i]:.0%} of the time")
+                    for i in ids)
+    body = ("<h2>Difficulty: how your misses compare with what players at your level find (Maia-3)</h2>"
+            + t1 + t2 + "<h3>Surprising misses</h3>" + t3
+            + (f"<h3>Your worst surprising misses</h3><div class='grid'>{cards}</div>" if cards else ""))
+    return body, lines
 
 
 def critical_stats(model, cfg, df, D, names):
@@ -300,6 +436,7 @@ def main() -> None:
             + "<h3>Practice positions (peers' games)</h3><div class='grid'>" + "".join(drills) + "</div>"
         )
 
+    maia_html, maia_lines = maia_section(cfg, rcfg, pop, me, tr_pop, tr_me, tl_pop, tl_me, links, B)
     calib = (me.wp_loss.mean(), pop.wp_loss.mean())
     body = [
         "<h1>Your ideas report</h1>",
@@ -321,6 +458,7 @@ def main() -> None:
         "<h2>Tactics: what your blunders and tactical mistakes are made of</h2>", tactic_table(),
         phase_table(),
         tactic_examples(),
+        maia_html,
         *[idea_section(k) for k in weak],
     ]
     path = data_dir(cfg, "player") / "player_report.html"
@@ -337,6 +475,9 @@ def main() -> None:
     print("no-material blunders by phase (per 100 moves, you vs peers):")
     for i, p_ in enumerate(phases):
         print(f"  {p_:10s} {ph_me[i]:5.2f} [{ph_lo[i]:.2f}, {ph_hi[i]:.2f}] vs {ph_pop[i]:5.2f}")
+    print("Maia difficulty:")
+    for line in maia_lines:
+        print("  " + line)
     for title, ks in (("weaknesses", weak), ("strengths", strong)):
         print(f"{title} (share of positional loss, you vs peers):")
         for k in ks:

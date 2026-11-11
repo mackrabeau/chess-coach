@@ -41,11 +41,15 @@ Owner: Mack (chess.com `bananaman987654321`, rapid ~1922, 1,652 rapid games; cli
 | `09b_maia_difficulty.py [--set] [--fit-only]` | Maia-3 with history: P(best move) and P(played move) at every self-Elo on `maia.grid` (1100–2500/100) for all positions; resumable parts. Then best-fit Elo (max summed log-lik of played moves, parabola-refined): peers per rating bin (validation) and you (90% CI over games) | `data/<set>/maia/part-*.parquet` |
 | `07b_inspect_tactics.py` | worst peer examples per tactics category (direction × motif) + all detected motifs, to eyeball the detectors | `data/ideas/tactics_report.html` |
 | `07_inspect_ideas.py` | HTML per idea with top peer positions | `data/ideas/ideas_report.html` |
-| `08_player_report.py` | loss breakdown per track (you vs peers, bootstrap CI); per idea relative share of positional loss (removes overall-strength offset) → weaknesses / strengths; abs leak + critical miss rate; own positions + drills | `data/player/player_report.html` |
+| `08_player_report.py` | (+ Maia section when 09b has run: best-move hit rate vs Maia-expected at own level; error rate + loss by Maia-difficulty band; "surprising misses" = errors where Maia at your level finds the best move ≥ `maia.surprise` (0.5), by tactics category / track; your worst examples) loss breakdown per track (you vs peers, bootstrap CI); per idea relative share of positional loss (removes overall-strength offset) → weaknesses / strengths; abs leak + critical miss rate; own positions + drills | `data/player/player_report.html` |
 
 Key modules: `coach/mine.py` (position extraction, parquet schema incl. 7-ply `history_fens` for Maia), `coach/engine.py` (Analyzer, `RESULT_SCHEMA`), `coach/ideas.py` (IdeaModel, NMF, stability), `coach/results.py` (`load_analyzed`, `load_with_deltas`), `coach/report.py` (HTML/SVG boards). `pos_id = "{source}:{game_id}:{ply}"` joins everything.
 
 Engine output per position: best_move, cp_best, cp_played, alt_move/cp_alt (2nd best), wp_*, wp_loss, label, critical, played_is_best, best_line/played_line/alt_line (UCI, length `pv_plies`=6, trimmed to even if game ends), *_complete flags. Evals from the mover's POV; each position starts with `ucinewgame` (hash cleared, order-independent).
+
+## Status (2026-11-13, Maia difficulty in 08)
+- 09b `--fit-only` on real data: **offset 125 [95, 140]** (Maia Elo = chess.com rating then + 125); latest rating ~1908 → ~2033. Set `maia.player_offset: 125`.
+- `coach/difficulty.py` (at_elo, own_elo, p_best_own) + Maia section in 08; tested on fake data only (where error rate is flat across difficulty, as expected for engine-noise games; on real games it should fall with Maia ease — a sanity check).
 
 ## Status (2026-11-13, 09b on real data)
 - 09b ran (GPU, ~202 passes/s, ~30 min total). Best-fit Elo validation on peers (Lichess rating bins, mean → fit): 2025 → 2035, 2074 → 2097, 2123 → 2167, 2172 → 2221; all peers 2083 → 2104. Tracks rating monotonically, slight upward bias growing with rating (fit slope ≈ 1.27× real; real ≈ 2025 + 0.79·(fit − 2035)).

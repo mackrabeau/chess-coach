@@ -113,12 +113,14 @@ def _mover(fen: str) -> str:
     return "White" if chess.Board(fen).turn == chess.WHITE else "Black"
 
 
-def position_card(r, *, puzzle: bool = False, link: str | None = None) -> str:
+def position_card(r, *, puzzle: bool = False, link: str | None = None, note: str | None = None) -> str:
     """r: a row with fen, move, best_move, best_line, played_line, wp_loss, phase."""
     head = (f"{_mover(r.fen)} to move · {r.phase} · loss {r.wp_loss:.0%}"
             if not puzzle else f"{_mover(r.fen)} to move · {r.phase} · find the best move")
     if link:
         head += f" · <a href='{html.escape(link)}' target='_blank'>game</a>"
+    if note:
+        head += f"<br>{html.escape(note)}"
     if puzzle:
         svg = board_svg(r.fen)
         sol = (f"<details><summary>solution</summary><div class='line best'>"

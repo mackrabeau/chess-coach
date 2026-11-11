@@ -31,17 +31,13 @@ import pandas as pd
 import pyarrow as pa
 
 from coach.config import data_dir, load_config
+from coach.difficulty import at_elo, grid_of
 from coach.maia import Maia
 from coach.parts import done_ids, next_part_index, read_parts, write_part
 from coach.results import load_analyzed
 
 SCHEMA = pa.schema([("pos_id", pa.string()),
                     ("p_best", pa.list_(pa.float32())), ("p_played", pa.list_(pa.float32()))])
-
-
-def grid_of(mcfg) -> np.ndarray:
-    lo, hi, step = mcfg.get("grid", [1100, 2500, 100])
-    return np.arange(lo, hi + 1, step)
 
 
 def player_offset(df, mcfg) -> float:
@@ -111,15 +107,6 @@ def best_fit(ll_sum: np.ndarray, grid: np.ndarray) -> float:
         if den < 0:
             return float(grid[k] + 0.5 * (y0 - y2) / den * (grid[1] - grid[0]))
     return float(grid[k])
-
-
-def at_elo(curves: np.ndarray, elo: np.ndarray, grid: np.ndarray) -> np.ndarray:
-    """Read each row's grid curve at its own Elo (linear interpolation, clamped to the grid)."""
-    x = np.clip((np.asarray(elo, float) - grid[0]) / (grid[1] - grid[0]), 0, len(grid) - 1)
-    i = np.minimum(np.floor(x).astype(int), len(grid) - 2)
-    w = x - i
-    r = np.arange(len(curves))
-    return (1 - w) * curves[r, i] + w * curves[r, i + 1]
 
 
 def fit_offset(L: np.ndarray, rating: np.ndarray, game: np.ndarray, grid: np.ndarray,
