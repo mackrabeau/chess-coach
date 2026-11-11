@@ -120,7 +120,7 @@ def wdl3(v: int) -> int:
     return 2 if v == 2 else (-2 if v == -2 else 0)
 
 
-def theory(df, tb):
+def theory(df, tb, with_moves: bool = True):
     """Tablebase verdict before and after each played move, for positions the tables cover."""
     rows = []
     for i in range(len(df)):
@@ -137,7 +137,7 @@ def theory(df, tb):
         if before == -2:
             continue           # already lost: nothing to throw away
         good = []
-        for m in b.legal_moves:
+        for m in (b.legal_moves if with_moves else []):
             b.push(m)
             try:
                 v = 2 if b.is_checkmate() else -wdl3(tb.probe_wdl(b))
@@ -151,6 +151,26 @@ def theory(df, tb):
     return pd.DataFrame(rows)
 
 
+def peer_small(cfg, max_pieces: int = 5) -> pd.DataFrame:
+    """All stored peer positions (positions_sae, ~1.5M) with at most max_pieces pieces.
+    The tablebase needs no engine, so the peer baseline can use the whole pool."""
+    sae = pd.read_parquet(data_dir(cfg, "population") / "positions_sae.parquet",
+                          columns=["pos_id", "fen", "move", "mover_rating"])
+    board = sae.fen.str.split(" ", n=1).str[0]
+    n = board.str.count(r"[pnbrqkPNBRQK]")
+    return sae[n <= max_pieces].reset_index(drop=True)
+
+
+def wilson(k: int, n: int, z: float = 1.645):
+    """90% Wilson interval for a proportion."""
+    if n == 0:
+        return float("nan"), float("nan")
+    p = k / n
+    c = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+    mid = (p + z * z / (2 * n)) / (1 + z * z / n)
+    return mid - c, mid + c
+
+
 def theory_table(tm, tp):
     rows, lines = [], []
     classes = sorted(set(tm["class"]) | set(tp["class"])) if len(tm) and len(tp) else []
@@ -160,10 +180,15 @@ def theory_table(tm, tp):
         if len(m) == 0:
             continue
         rm, rp = m.error.mean(), (p.error.mean() if len(p) else float("nan"))
+        lo_r, hi_r = wilson(int(m.error.sum()), len(m))
+        clear = len(p) >= 30 and (lo_r > rp or hi_r < rp)
         wm = m[m.before == 2]
-        rows.append(f"<tr><td>{c}</td><td>{len(m)}</td><td>{rm:.1%}</td><td>{len(p)}</td><td>{rp:.1%}</td>"
+        rows.append(f"<tr><td>{c}</td><td>{len(m)}</td><td>{rm:.1%} <span class='muted'>[{lo_r:.1%}, {hi_r:.1%}]"
+                    f"</span>{' <span class=down>clear</span>' if clear and rm > rp else ' <span class=up>clear</span>' if clear else ''}"
+                    f"</td><td>{len(p)}</td><td>{rp:.1%}</td>"
                     f"<td>{len(wm)}</td><td>{(wm.after < 2).mean() if len(wm) else float('nan'):.1%}</td></tr>")
-        lines.append(f"  {c:20s} you: {m.error.sum()}/{len(m)} moves threw the result ({rm:.1%})   "
+        lines.append(f"  {c:20s} you: {m.error.sum()}/{len(m)} moves threw the result ({rm:.1%} [{lo_r:.1%}, {hi_r:.1%}])"
+                     f"{'  CLEAR' if clear else ''}   "
                      f"peers: {int(p.error.sum()) if len(p) else 0}/{len(p)} ({rp:.1%})   "
                      f"from won positions you let it slip {(wm.after < 2).mean() if len(wm) else float('nan'):.1%} (n {len(wm)})")
     t = ("<table><tr><th>endgame type</th><th>your moves (won / drawn positions)</th><th>threw the result</th>"
@@ -197,10 +222,18 @@ def main() -> None:
         # contested-only loss per move, per game averaged (resign-proof version of the old metric)
         def contested(df):
             e = df[(df.phase == "endgame") & (df.wp_best >= 0.2) & (df.wp_best <= 0.8)]
-            return 100 * e.groupby("game_id").wp_loss.mean().mean(), e.game_id.nunique()
-        (cm, nm), (cp, npg) = contested(me), contested(pop)
-        out_lines.append(f"  contested endgame positions only (0.2-0.8), loss per 100 moves averaged per game: "
-                         f"you {cm:.2f} ({nm} games) vs peers {cp:.2f} ({npg} games)")
+            return 100 * e.groupby("game_id").wp_loss.mean().to_numpy()   # per game, so long games don't dominate
+        gm, gp = contested(me), contested(pop)
+        boots = [gm[rng.integers(0, len(gm), len(gm))].mean() for _ in range(B)]
+        lo_c, hi_c = np.percentile(boots, [5, 95])
+        verdict = "clear" if (lo_c > gp.mean() or hi_c < gp.mean()) else "within noise"
+        out_lines.append(f"  contested endgame positions only (win prob 0.2-0.8), loss per 100 moves averaged per game: "
+                         f"you {gm.mean():.2f} [{lo_c:.2f}, {hi_c:.2f}] ({len(gm)} games) vs peers {gp.mean():.2f} "
+                         f"({len(gp)} games)  {verdict}")
+        body.append(f"<p>Contested endgame positions only (win probability 0.2–0.8), win probability lost per 100 "
+                    f"moves, averaged per game: you {gm.mean():.2f} <span class='muted'>[{lo_c:.2f}, {hi_c:.2f}], "
+                    f"{len(gm)} games</span> vs peers {gp.mean():.2f} <span class='muted'>({len(gp)} games)</span> "
+                    f"— {verdict}.</p>")
     else:
         out_lines.append("A. skipped: no game results yet (re-run 00; run 01b for peers)")
 
@@ -228,7 +261,8 @@ def main() -> None:
     tb_path = cfg.get("endgames", {}).get("syzygy_path")
     if tb_path and resolve(cfg, tb_path).exists():
         with chess.syzygy.open_tablebase(str(resolve(cfg, tb_path))) as tb:
-            tm_all, tp = theory(me_all, tb), theory(pop, tb)
+            tm_all = theory(me_all, tb)
+            tp = theory(peer_small(cfg), tb, with_moves=False)   # every stored peer position the tables cover, not just the engine sample
         tm = tm_all[me_all.mover_rating.to_numpy()[tm_all.row.to_numpy()] >= cmp_min] if len(tm_all) else tm_all
         t, l = theory_table(tm, tp)
         t2, l2 = theory_table(tm_all, tp)
