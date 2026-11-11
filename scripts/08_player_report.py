@@ -31,7 +31,7 @@ import numpy as np
 import pandas as pd
 
 from coach.config import data_dir, load_config
-from coach.difficulty import p_best_own
+from coach.difficulty import p_best_own, player_maia_elo
 from coach.ideas import IdeaModel, move_tracks, shares, track, track_cfg
 from coach.motifs import tactic_labels
 from coach.report import feats_html, page, position_card
@@ -94,6 +94,66 @@ def per100(df, rows: np.ndarray, cats: pd.Series, names: list[str]) -> np.ndarra
     loss = df.wp_loss.to_numpy()
     return np.array([100 * loss[rows[cats.to_numpy() == c]].sum() / max(len(df), 1) for c in names])
 
+
+
+
+def progress_section(cfg, rcfg, model, me_all, Dm_all, names, B):
+    """Whole history, you vs yourself, per quarter. Returns (html, console lines)."""
+    when = pd.to_datetime(me_all.date.astype(str).str.replace(".", "-", regex=False), errors="coerce")
+    if when.notna().mean() < 0.5:
+        return "", ["(progress skipped: games have no dates)"]
+    df = me_all.assign(q=when.dt.to_period("Q").astype(str))
+    tr = move_tracks(model, cfg, me_all, Dm_all, names)
+    d = p_best_own(cfg, me_all, "player")
+    have_d = d is not None and np.isfinite(d).mean() > 0.9
+    loss = df.wp_loss.to_numpy()
+    err = (df.label.isin(["mistake", "blunder"]) & ~df.played_is_best).to_numpy()
+    best = df.played_is_best.to_numpy()
+    min_games = rcfg.get("progress_min_games", 20)
+    rows, lines = [], []
+    for q, idx in df.groupby("q").indices.items():
+        sub = df.iloc[idx]
+        if q == "NaT" or sub.game_id.nunique() < min_games:
+            continue
+        vals = [loss[idx], loss[idx] * (tr[idx] == "blunder"), loss[idx] * (tr[idx] == "positional")]
+        if have_d:
+            dd = d[idx]
+            vals += [(dd < 0.4), (dd < 0.4) & err[idx], (dd >= 0.6), (dd >= 0.6) & err[idx],
+                     best[idx], np.nan_to_num(dd)]
+        bt = game_bootstrap(sub, np.arange(len(sub)), np.stack(vals, 1).astype(float), B)
+        lo, hi = ci(bt)
+        pt = 100 * np.stack(vals, 1).astype(float).sum(0) / len(sub)
+        r = sub.mover_rating.median()
+        maia_elo = float(player_maia_elo(r, cfg["maia"]))
+        cells = [f"{q}", f"{sub.game_id.nunique()}", f"{r:.0f}", f"{maia_elo:.0f}"]
+        cells += [f"{pt[i]:.2f} <span class='muted'>[{lo[i]:.2f}, {hi[i]:.2f}]</span>" for i in range(3)]
+        line = (f"{q}: {sub.game_id.nunique():3d} games, chess.com {r:.0f} (Maia {maia_elo:.0f}), loss/100 "
+                f"{pt[0]:.2f} [{lo[0]:.2f}, {hi[0]:.2f}], blunders {pt[1]:.2f}, positional {pt[2]:.2f}")
+        if have_d:
+            hard = pt[4] / max(pt[3], 1e-9)
+            easy = pt[6] / max(pt[5], 1e-9)
+            hard_ci = ci(bt[:, 4] / np.maximum(bt[:, 3], 1e-9))
+            easy_ci = ci(bt[:, 6] / np.maximum(bt[:, 5], 1e-9))
+            gap = (pt[7] - pt[8]) / 100
+            gap_ci = ci((bt[:, 7] - bt[:, 8]) / 100)
+            cells += [f"{hard:.1%} <span class='muted'>[{hard_ci[0]:.1%}, {hard_ci[1]:.1%}]</span>",
+                      f"{easy:.1%} <span class='muted'>[{easy_ci[0]:.1%}, {easy_ci[1]:.1%}]</span>",
+                      f"{gap:+.1%} <span class='muted'>[{gap_ci[0]:+.1%}, {gap_ci[1]:+.1%}]</span>"]
+            line += f", errors hard {hard:.1%} / easy {easy:.1%}, best vs Maia {gap:+.1%}"
+        rows.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
+        lines.append(line)
+    if not rows:
+        return "", ["(progress skipped: no quarter with enough games)"]
+    head = ["quarter", "games", "chess.com rating", "Maia level", "loss / 100 moves",
+            "blunders / 100", "positional / 100"]
+    if have_d:
+        head += ["error rate, hard positions", "error rate, easy positions", "best move vs Maia-expected"]
+    note = ("<p class='muted'>Your whole history, compared only with yourself. Loss = win probability lost "
+            "per 100 moves. Maia level = your rating then mapped onto Maia's scale. Hard / easy = Maia at "
+            "your level finds the best move &lt; 40% / ≥ 60% of the time; error = mistake or blunder. "
+            "Brackets are 90% intervals over games.</p>")
+    return ("<h2>Progress over time</h2><table><tr>" + "".join(f"<th>{h}</th>" for h in head)
+            + "</tr>" + "".join(rows) + "</table>" + note), lines
 
 
 DIFF_BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0001]
@@ -266,7 +326,13 @@ def main() -> None:
     model = IdeaModel.load(data_dir(cfg, "ideas") / "model.pkl")
 
     pop, Dp, names = load_with_deltas(cfg, "population")
-    me, Dm, _ = load_with_deltas(cfg, "player")
+    me_all, Dm_all, _ = load_with_deltas(cfg, "player")
+    # Comparisons with the peer band only use games at >= min_player_rating; the whole
+    # history goes to "progress over time".
+    cmp_min = cfg["player"]["min_player_rating"]
+    keep = (me_all.mover_rating >= cmp_min).to_numpy()
+    me = me_all[keep].reset_index(drop=True)
+    Dm = {k: v[keep] for k, v in Dm_all.items()}
     tr_pop, tr_me = move_tracks(model, cfg, pop, Dp, names), move_tracks(model, cfg, me, Dm, names)
     pr, _, pS = mistake_codes(model, pop, Dp, tr_pop)
     mr, mW, mS = mistake_codes(model, me, Dm, tr_me)
@@ -437,10 +503,11 @@ def main() -> None:
         )
 
     maia_html, maia_lines = maia_section(cfg, rcfg, pop, me, tr_pop, tr_me, tl_pop, tl_me, links, B)
+    prog_html, prog_lines = progress_section(cfg, rcfg, model, me_all, Dm_all, names, B)
     calib = (me.wp_loss.mean(), pop.wp_loss.mean())
     body = [
         "<h1>Your ideas report</h1>",
-        f"<p class='muted'>{len(me):,} of your moves ({me.game_id.nunique():,} games) compared with "
+        f"<p class='muted'>{len(me):,} of your moves ({me.game_id.nunique():,} games at chess.com ≥ {cmp_min}) compared with "
         f"{len(pop):,} peer moves (Lichess rapid ≈ {model.meta.get('rating_center')}). "
         f"Mean win-prob loss per move: you {calib[0]:.2%}, peers {calib[1]:.2%}. "
         "These are patterns in where your losses concentrate relative to peers, not proven causes.</p>",
@@ -459,6 +526,7 @@ def main() -> None:
         phase_table(),
         tactic_examples(),
         maia_html,
+        prog_html,
         *[idea_section(k) for k in weak],
     ]
     path = data_dir(cfg, "player") / "player_report.html"
@@ -475,6 +543,9 @@ def main() -> None:
     print("no-material blunders by phase (per 100 moves, you vs peers):")
     for i, p_ in enumerate(phases):
         print(f"  {p_:10s} {ph_me[i]:5.2f} [{ph_lo[i]:.2f}, {ph_hi[i]:.2f}] vs {ph_pop[i]:5.2f}")
+    print("progress over time (whole history, you vs yourself):")
+    for line in prog_lines:
+        print("  " + line)
     print("Maia difficulty:")
     for line in maia_lines:
         print("  " + line)

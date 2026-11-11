@@ -1,6 +1,7 @@
 """Resumable parquet part files (used by the engine passes 02 and 03)."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pyarrow as pa
@@ -27,10 +28,13 @@ def next_part_index(part_dir: Path) -> int:
 
 
 def write_part(part_dir: Path, idx: int, rows: list[dict], schema: pa.Schema) -> None:
-    tmp = part_dir / f"part-{idx:06d}.parquet.tmp"
+    # The process id in the name keeps two runs started at the same time from overwriting
+    # each other's parts (both would otherwise pick the same next index).
+    name = f"part-{idx:06d}-{os.getpid()}"
+    tmp = part_dir / f"{name}.parquet.tmp"
     rows = [{k: r.get(k) for k in schema.names} for r in rows]
     pq.write_table(pa.Table.from_pylist(rows, schema=schema), tmp, compression="zstd")
-    tmp.replace(part_dir / f"part-{idx:06d}.parquet")  # atomic: no half-written parts
+    tmp.replace(part_dir / f"{name}.parquet")  # atomic: no half-written parts
 
 
 def read_parts(part_dir: Path):

@@ -3,7 +3,9 @@
 09b stores, per position, Maia's P(engine best move) and P(played move) at every self-Elo
 on maia.grid. Here we read each curve at the mover's own Maia-scale Elo:
   peers : their Lichess rating
-  you   : your chess.com rating at the time of the game + maia.player_offset
+  you   : your chess.com rating r at the time of the game, mapped onto Maia's scale as
+          r + player_offset + player_offset_slope * (r - 1800)
+          (the chess.com/Lichess gap isn't the same at 1000 as at 1900; 09b fits both)
 p_best_own = how often a player at that level finds the engine's best move here, per Maia.
 """
 from __future__ import annotations
@@ -19,6 +21,21 @@ def grid_of(mcfg: dict) -> np.ndarray:
     return np.arange(lo, hi + 1, step)
 
 
+def maia_dir(cfg: dict, which: str):
+    """09b output folder for the configured grid (a new grid starts a fresh folder)."""
+    lo, hi, step = cfg["maia"].get("grid", [1100, 2500, 100])
+    return data_dir(cfg, which, f"maia_{lo}_{hi}_{step}")
+
+
+def player_maia_elo(rating, mcfg: dict, df=None):
+    """chess.com rating(s) -> Maia-scale Elo, from the fitted offset (+ slope)."""
+    r = np.asarray(rating, float)
+    off = mcfg.get("player_offset")
+    if off is None:
+        off = mcfg["player_elo"] - (np.median(r) if df is None else df.mover_rating.median())
+    return r + float(off) + float(mcfg.get("player_offset_slope") or 0) * (r - 1800)
+
+
 def at_elo(curves: np.ndarray, elo, grid: np.ndarray) -> np.ndarray:
     """Read each row's grid curve at its own Elo (linear interpolation, clamped to the grid)."""
     x = np.clip((np.asarray(elo, float) - grid[0]) / (grid[1] - grid[0]), 0, len(grid) - 1)
@@ -31,16 +48,13 @@ def at_elo(curves: np.ndarray, elo, grid: np.ndarray) -> np.ndarray:
 def own_elo(df, which: str, mcfg: dict) -> np.ndarray:
     if which == "population":
         return df.mover_rating.to_numpy(float)
-    off = mcfg.get("player_offset")
-    if off is None:
-        off = mcfg["player_elo"] - df.mover_rating.median()
-    return df.mover_rating.to_numpy(float) + float(off)
+    return player_maia_elo(df.mover_rating.to_numpy(float), mcfg, df)
 
 
 def p_best_own(cfg: dict, df, which: str):
     """P(best move) at the mover's own Maia Elo, aligned to df rows (NaN where 09b hasn't run).
     Returns None if there are no 09b results for this set."""
-    q = read_parts(data_dir(cfg, which, "maia"))
+    q = read_parts(maia_dir(cfg, which))
     if q is None:
         return None
     mcfg = cfg["maia"]

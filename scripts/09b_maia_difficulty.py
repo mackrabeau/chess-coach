@@ -15,7 +15,7 @@ Then:
 
     python scripts/09b_maia_difficulty.py --config configs/v0.yaml
 
-Output: data/<set>/maia/part-*.parquet (pos_id, p_best[grid], p_played[grid])
+Output: data/<set>/maia_<lo>_<hi>_<step>/part-*.parquet (pos_id, p_best[grid], p_played[grid])
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ import pandas as pd
 import pyarrow as pa
 
 from coach.config import data_dir, load_config
-from coach.difficulty import at_elo, grid_of
+from coach.difficulty import at_elo, grid_of, maia_dir, player_maia_elo
 from coach.maia import Maia
 from coach.parts import done_ids, next_part_index, read_parts, write_part
 from coach.results import load_analyzed
@@ -40,16 +40,10 @@ SCHEMA = pa.schema([("pos_id", pa.string()),
                     ("p_best", pa.list_(pa.float32())), ("p_played", pa.list_(pa.float32()))])
 
 
-def player_offset(df, mcfg) -> float:
-    """chess.com -> Maia/Lichess shift: the fitted maia.player_offset, else from player_elo."""
-    off = mcfg.get("player_offset")
-    return float(off) if off is not None else mcfg["player_elo"] - df.mover_rating.median()
-
-
 def opponent_elos(df, name, mcfg) -> np.ndarray:
     if name == "population":
         return df.opp_rating.to_numpy()
-    return (df.opp_rating.to_numpy() + player_offset(df, mcfg)).round()
+    return player_maia_elo(df.opp_rating.to_numpy(float), mcfg, df).round()
 
 
 def compute(maia: Maia, cfg: dict, name: str, chunk: int, batch: int) -> None:
@@ -57,7 +51,7 @@ def compute(maia: Maia, cfg: dict, name: str, chunk: int, batch: int) -> None:
     grid = grid_of(mcfg)
     torch = maia.torch
     df = load_analyzed(cfg, name)
-    out = data_dir(cfg, name, "maia")
+    out = maia_dir(cfg, name)
     done = done_ids(out)
     todo = df[~df.pos_id.isin(done)].reset_index(drop=True)
     print(f"[{name}] {len(df):,} positions, {len(done):,} done, {len(todo):,} to go; "
@@ -110,23 +104,27 @@ def best_fit(ll_sum: np.ndarray, grid: np.ndarray) -> float:
 
 
 def fit_offset(L: np.ndarray, rating: np.ndarray, game: np.ndarray, grid: np.ndarray,
-               offsets=np.arange(-300, 501, 5), n_boot: int = 300):
-    """Offset c maximizing sum_i log P(played_i | Elo = rating_i + c): each game is scored
-    at the player's rating when it was played, shifted onto Maia's (Lichess) scale."""
+               offsets=np.arange(-300, 501, 5), slopes=(0.0,), n_boot: int = 300):
+    """(c0, c1) maximizing sum_i log P(played_i | Elo = r_i + c0 + c1 (r_i - 1800)): each game is
+    scored at the player's rating when it was played, mapped onto Maia's (Lichess) scale.
+    Returns (c0, c1, c0_lo, c0_hi, c1_lo, c1_hi) with a game-bootstrap 90% interval."""
     games, g = np.unique(game, return_inverse=True)
-    per_game = np.zeros((len(games), len(offsets)))
-    for j, c in enumerate(offsets):
-        np.add.at(per_game[:, j], g, at_elo(L, rating + c, grid))
-    best = lambda tot: float(offsets[int(np.argmax(tot))])
+    combos = [(c0, c1) for c1 in slopes for c0 in offsets]
+    per_game = np.zeros((len(games), len(combos)))
+    for j, (c0, c1) in enumerate(combos):
+        np.add.at(per_game[:, j], g, at_elo(L, rating + c0 + c1 * (rating - 1800), grid))
+    best = lambda tot: combos[int(np.argmax(tot))]
     rng = np.random.default_rng(0)
-    boots = [best(per_game[rng.integers(0, len(games), len(games))].sum(0)) for _ in range(n_boot)]
-    return best(per_game.sum(0)), *np.percentile(boots, [5, 95])
+    boots = np.array([best(per_game[rng.integers(0, len(games), len(games))].sum(0)) for _ in range(n_boot)])
+    c0, c1 = best(per_game.sum(0))
+    (a0, a1), (b0, b1) = np.percentile(boots, 5, axis=0), np.percentile(boots, 95, axis=0)
+    return c0, c1, a0, b0, a1, b1
 
 
 def load_maia(cfg: dict, name: str):
     """Analyzed positions joined with their Maia curves (rows without curves dropped)."""
     df = load_analyzed(cfg, name)
-    q = read_parts(data_dir(cfg, name, "maia"))
+    q = read_parts(maia_dir(cfg, name))
     if q is None:
         return None
     return df.merge(q, on="pos_id", how="inner")
@@ -168,13 +166,29 @@ def fit_report(cfg: dict) -> None:
         print(f"\nyou: best-fit Lichess-scale Elo {fit:.0f}  [90% {lo:.0f}, {hi:.0f}]{edge}  "
               f"(chess.com median {me.mover_rating.median():.0f}; config maia.player_elo "
               f"{cfg['maia']['player_elo']})")
-        c, clo, chi = fit_offset(L, me.mover_rating.to_numpy(float), me.game_id.to_numpy(), grid)
+        r = me.mover_rating.to_numpy(float)
+        c, _, clo, chi, _, _ = fit_offset(L, r, me.game_id.to_numpy(), grid)
         when = pd.to_datetime(me.date.astype(str).str.replace(".", "-", regex=False), errors="coerce")
         order = np.argsort(when.to_numpy()) if when.notna().any() else np.arange(len(me))
-        recent = me.mover_rating.to_numpy()[order][-max(1, len(me) // 10):]   # latest 10% of moves
+        recent = r[order][-max(1, len(me) // 10):]   # latest 10% of moves
         print(f"you, game by game: Maia Elo = chess.com rating + {c:.0f}  [90% {clo:.0f}, {chi:.0f}]  "
               f"(config maia.player_offset {cfg['maia'].get('player_offset')}); "
               f"at your latest rating ~{np.median(recent):.0f} that is ~{np.median(recent) + c:.0f}")
+        if r.max() - r.min() >= 300:   # wide rating range: let the offset depend on rating
+            c0, c1, a0, b0, a1, b1 = fit_offset(L, r, me.game_id.to_numpy(), grid,
+                                                offsets=np.arange(-300, 601, 10),
+                                                slopes=np.round(np.arange(-0.5, 0.51, 0.05), 2), n_boot=200)
+            ex = ", ".join(f"{x} -> {x + c0 + c1 * (x - 1800):.0f}" for x in (1000, 1400, 1800, 1900))
+            print(f"you, rating-dependent: Maia Elo = r + {c0:.0f} + {c1:.2f} (r - 1800)  "
+                  f"[c0 {a0:.0f}..{b0:.0f}, slope {a1:.2f}..{b1:.2f}]  ({ex}); "
+                  f"set maia.player_offset / player_offset_slope from this")
+            print("  check per rating band (best fit vs mapped):")
+            for lo, hi in ((0, 1200), (1200, 1500), (1500, 1750), (1750, 1850), (1850, 9999)):
+                m = (r >= lo) & (r < hi)
+                if me.game_id[m].nunique() >= 20:
+                    print(f"    chess.com {lo}-{min(hi, 3000) - 1}: median {np.median(r[m]):.0f}, best fit "
+                          f"{best_fit(L[m].sum(0), grid):.0f}, mapped {np.median(r[m]) + c0 + c1 * (np.median(r[m]) - 1800):.0f}"
+                          f"  ({me.game_id[m].nunique()} games)")
 
 
 def main() -> None:

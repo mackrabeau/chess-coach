@@ -1,7 +1,9 @@
 """Download the player's chess.com games and mine the player's decision positions.
 
 Output: data/player/positions.parquet (only moves made by the player, only games
-where the player's rating >= player.min_player_rating, standard filters applied).
+where the player's rating >= player.fetch_min_rating, standard filters applied).
+fetch_min_rating defaults to 0 (whole history, used for progress over time);
+comparisons with the peer band use only games >= player.min_player_rating (08).
 
     python scripts/00_fetch_player.py --config configs/v0.yaml
     python scripts/00_fetch_player.py --config configs/v0.yaml --offline   # reuse cached archives
@@ -46,7 +48,7 @@ def main() -> None:
             continue
         # chess.com JSON rating is the player's rating after the game; close enough for a cutoff.
         rating = g["white" if is_white else "black"].get("rating", 0)
-        if rating < pcfg["min_player_rating"]:
+        if rating < pcfg.get("fetch_min_rating", pcfg["min_player_rating"]):
             n_skipped_rating += 1
             continue
         game_id = g.get("uuid") or g["url"].rstrip("/").split("/")[-1]

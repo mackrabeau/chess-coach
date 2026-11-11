@@ -7,6 +7,7 @@ player:
   time_class: rapid
   rated_only: true
   min_player_rating: 1750
+  fetch_min_rating: 0
 population:
   rating_center: 2100
   rating_halfwidth: 100
@@ -66,6 +67,7 @@ maia:                    # Maia-3 (pip install git+https://github.com/CSSLab/mai
   model: 23m             # 5m / 23m / 79m
   player_elo: 2125
   player_offset: 125
+  player_offset_slope: 0.0
   surprise: 0.5
   grid: [1100, 2500, 200]
   batch: 16

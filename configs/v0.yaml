@@ -12,8 +12,10 @@ player:
   username: bananaman987654321
   time_class: rapid
   rated_only: true
-  # Rating climbed a lot; only diagnose the current player.
+  # Rating climbed a lot (960 -> ~1920). Comparisons with the peer band use only games at
+  # >= min_player_rating; the whole history (>= fetch_min_rating) feeds "progress over time".
   min_player_rating: 1750
+  fetch_min_rating: 0
 
 population:
   # Lichess-equivalent of the player's chess.com rapid rating. Starting guess; calibrate later.
@@ -84,7 +86,8 @@ deep:                    # 06c_deepen_tactics.py: blunders with no material swin
 maia:                    # Maia-3 (pip install git+https://github.com/CSSLab/maia3)
   model: 23m             # 5m / 23m / 79m
   player_elo: 1925       # Maia-scale Elo that best predicts your moves (09b fit 1923 [1892, 1954]; games mostly at chess.com ~1790). Engine accuracy says ~2125, a different scale
-  player_offset: 125     # Maia Elo = your chess.com rating at the time + this (09b fit: 125 [95, 140])
+  player_offset: 125     # Maia Elo = r + player_offset + player_offset_slope * (r - 1800), r = chess.com rating then
+  player_offset_slope: 0.0  # (09b fit on games >= 1750: offset 125 [95, 140]; refit on the whole history)
   surprise: 0.5          # 'surprising miss' = Maia at your level finds the best move at least this often
-  grid: [1100, 2500, 100]  # self-Elo grid for the difficulty pass (09b)
+  grid: [700, 2500, 100]   # self-Elo grid for the difficulty pass (09b); starts low for the early history
   batch: 64              # positions per forward pass on GPU (x grid size); lower if out of memory
