@@ -8,4 +8,5 @@ tqdm>=4.66
 numpy>=1.26
 scipy>=1.11
 scikit-learn>=1.4
-# Added later (feature extraction / SAE): torch (CUDA build from pytorch.org), maia3
+# Maia (09a+): torch (CUDA build: pip install torch --index-url https://download.pytorch.org/whl/cu126)
+#              maia3 (pip install git+https://github.com/CSSLab/maia3)

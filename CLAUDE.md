@@ -37,6 +37,7 @@ Owner: Mack (chess.com `bananaman987654321`, rapid ~1922, 1,652 rapid games; cli
 | `06_learn_ideas.py` | routes mistakes into tracks, NMF on positional only; sweep reports stable atoms on real vs column-shuffled null data and median n80 (features per atom); optional `alpha_H` sparsity | `data/ideas/model.pkl` (IdeaModel), `sweep.csv`, `pop_codes.npz` |
 | `06b_check_line_ends.py [--raw]` | per atom: pending-recapture rate at line ends, material gap best vs played | stdout |
 | `06c_deepen_tactics.py --set ...` | blunders/tactical mistakes with no ≥ 2-pawn swing in the settled lines: continue best + played lines +20 plies @ 100k nodes (classification only, not features). Resumable | `data/<set>/engine_deep/part-*.parquet` |
+| `09a_maia_probe.py [--n N]` | Maia-3 on real positions: played-move log-likelihood with vs without history, Elo response near your level, self vs opponent Elo sensitivity, speed | stdout |
 | `07b_inspect_tactics.py` | worst peer examples per tactics category (direction × motif) + all detected motifs, to eyeball the detectors | `data/ideas/tactics_report.html` |
 | `07_inspect_ideas.py` | HTML per idea with top peer positions | `data/ideas/ideas_report.html` |
 | `08_player_report.py` | loss breakdown per track (you vs peers, bootstrap CI); per idea relative share of positional loss (removes overall-strength offset) → weaknesses / strengths; abs leak + critical miss rate; own positions + drills | `data/player/player_report.html` |
@@ -44,6 +45,11 @@ Owner: Mack (chess.com `bananaman987654321`, rapid ~1922, 1,652 rapid games; cli
 Key modules: `coach/mine.py` (position extraction, parquet schema incl. 7-ply `history_fens` for Maia), `coach/engine.py` (Analyzer, `RESULT_SCHEMA`), `coach/ideas.py` (IdeaModel, NMF, stability), `coach/results.py` (`load_analyzed`, `load_with_deltas`), `coach/report.py` (HTML/SVG boards). `pos_id = "{source}:{game_id}:{ply}"` joins everything.
 
 Engine output per position: best_move, cp_best, cp_played, alt_move/cp_alt (2nd best), wp_*, wp_loss, label, critical, played_is_best, best_line/played_line/alt_line (UCI, length `pv_plies`=6, trimmed to even if game ends), *_complete flags. Evals from the mover's POV; each position starts with `ucinewgame` (hash cleared, order-independent).
+
+## Status (2026-11-13)
+- Maia-3 facts (read from maia3 code @1e13597 + probe of 23M on CPU here, fake-data positions): **Elo is continuous, not bucketed** (linear blend of two embeddings, clamp 0–5000) → any Elo works, smooth response; P(engine best) rises ~0.30 → 0.41 from 1100 to ~2400 and flattens/declines above ~2500 (training range edge). Near 2100: mean P(best) moves ~0.01 per 100 Elo; Maia's top move changes between 1900 and 2300 in ~8–16% of positions → argmax "transition Elo" is coarse; use continuous P(best | Elo) instead. Self Elo matters ~10× more than opponent Elo (KL 0.05–0.12 vs ~0.01). History: 8 boards, each tokenized from its own side to move, oldest first, padded by repeating the earliest; released UCI defaults to no history. On fake (engine-played) games history changed top-1 in ~20% of positions with mixed effect on likelihood → must be decided on real games (`09a`). Speed: ~105–160 passes/s on 4 CPU threads; 23M ≈ 3 GFLOP/pass.
+- Weights download needs huggingface.co + its CDN; this cloud session uses a personal `chess-coach` environment that allows them.
+- `coach/maia.py` (wrapper) + `09a_maia_probe.py` written; config `maia: {model: 23m, player_elo: 2125}`.
 
 ## Status (2026-11-12, later)
 - After cash-in rule + deep pass (real data): deep pass reclassified 332/676 peer no-swing cases. Missed pin dropped to 1.58× (11 vs 8 exp, noise) → earlier "clear" was partly incidental pins. Holding: allowed winning capture 0.78× (60 vs 77 exp, strength); development 0.67× (strength); lead: "let a win slip" 1.62× (24 vs 15 exp, CI lower bound at peer value).

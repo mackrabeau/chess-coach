@@ -80,3 +80,7 @@ quiesce:                 # 03_settle_lines.py: extend lines until the end positi
 deep:                    # 06c_deepen_tactics.py: blunders with no material swing in the settled lines
   plies: 20              # continue best and played lines by up to this many plies
   nodes: 100000          # per search
+
+maia:                    # Maia-3 (pip install git+https://github.com/CSSLab/maia3)
+  model: 23m             # 5m / 23m / 79m
+  player_elo: 2125       # your strength on the Lichess scale (02b + band split: ~2100-2150)
