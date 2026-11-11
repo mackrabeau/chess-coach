@@ -34,8 +34,17 @@ SCHEMA = pa.schema(
         ("base_seconds", pa.int32()),
         ("increment", pa.int32()),
         ("game_plies", pa.int32()),
+        ("result", pa.float32()),                 # final score for the mover: 1 / 0.5 / 0, NaN if unknown
     ]
 )
+
+
+def mover_score(result_header: str | None, mover_white: bool) -> float:
+    """PGN Result header -> the mover's final score (1 win, 0.5 draw, 0 loss; NaN if unknown)."""
+    white = {"1-0": 1.0, "0-1": 0.0, "1/2-1/2": 0.5}.get((result_header or "").strip())
+    if white is None:
+        return float("nan")
+    return white if mover_white else 1.0 - white
 
 
 def is_rapid(tc: str | None, fcfg: dict) -> bool:
@@ -122,6 +131,7 @@ def extract_positions(
                     "base_seconds": base,
                     "increment": inc,
                     "game_plies": n_plies,
+                    "result": mover_score(headers.get("Result"), mover == chess.WHITE),
                 }
             )
         history.append(fen)
