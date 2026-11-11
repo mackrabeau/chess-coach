@@ -211,7 +211,14 @@ def main() -> None:
                 "<th>ratio</th><th>vs peers</th><th>leak / 100 moves</th><th>peers</th>"
                 "<th>critical miss rate</th><th>peers</th></tr>" + rows + "</table>")
 
+    # Your expected count at the peer rate: below min_expected, a bootstrap over a handful of
+    # events gives a falsely narrow interval (0 events -> [0, 0]), so no verdict.
+    expected = n_cat_pop * len(me) / max(len(pop), 1)
+    min_exp = rcfg.get("min_expected", 5)
+
     def tactic_verdict(j):
+        if expected[j] < min_exp:
+            return "<span class='muted'>too few</span>"
         if t_lo[j] > t_pop[j] and t_ratio[j] >= min_ratio:
             return "<span class='down'>clear</span>"
         if t_hi[j] < t_pop[j] and t_ratio[j] <= 1 / min_ratio:
@@ -225,13 +232,15 @@ def main() -> None:
             f"<tr><td>{html.escape(cats[j])}</td><td>{t_me[j]:.2f} <span class='muted'>"
             f"[{t_lo[j]:.2f}, {t_hi[j]:.2f}]</span></td><td>{t_pop[j]:.2f}</td>"
             f"<td>{t_ratio[j]:.2f}×</td><td>{tactic_verdict(j)}</td>"
-            f"<td>{n_cat_me[j]}</td><td>{n_cat_pop[j]}</td></tr>" for j in shown)
+            f"<td>{n_cat_me[j]} <span class='muted'>(exp. {expected[j]:.0f})</span></td>"
+            f"<td>{n_cat_pop[j]}</td></tr>" for j in shown)
         return ("<table><tr><th>what happened</th><th>you, per 100 moves (90% CI)</th><th>peers</th>"
                 "<th>ratio</th><th>vs peers</th><th>your n</th><th>peer n</th></tr>" + rows + "</table>"
                 f"<p class='muted'>Blunders and tactical mistakes. “missed” = the best line won ≥ 2 pawns of "
                 f"material you didn't take; “allowed” = your move let the opponent win ≥ 2. The motif is the "
                 f"first one detected in the relevant side's moves (heuristic). Categories with fewer than "
-                f"{min_n} peer examples are hidden.</p>")
+                f"{min_n} peer examples are hidden; no verdict when you'd expect fewer than {min_exp} at the "
+                f"peer rate.</p>")
 
     def tactic_examples():
         weak_t = [j for j in shown if t_me[j] > t_pop[j]][:2]
@@ -301,9 +310,9 @@ def main() -> None:
         print(f"  {t:10s} {bd_me[i]:5.2f} [{bd_lo[i]:.2f}, {bd_hi[i]:.2f}]  vs {bd_pop[i]:5.2f}")
     print("tactics (loss per 100 moves, you vs peers; peer n >= %d):" % min_n)
     for j in shown:
-        v = "CLEAR" if "clear" in tactic_verdict(j) else "noise"
-        print(f"  {cats[j]:32s} {t_me[j]:5.2f} [{t_lo[j]:.2f}, {t_hi[j]:.2f}] vs {t_pop[j]:5.2f}  "
-              f"{t_ratio[j]:.2f}x  {v:5s}  n {n_cat_me[j]} / {n_cat_pop[j]}")
+        v = "CLEAR" if "clear" in tactic_verdict(j) else "few" if "too few" in tactic_verdict(j) else "noise"
+        print(f"  {cats[j]:34s} {t_me[j]:5.2f} [{t_lo[j]:.2f}, {t_hi[j]:.2f}] vs {t_pop[j]:5.2f}  "
+              f"{t_ratio[j]:.2f}x  {v:5s}  n {n_cat_me[j]} (exp {expected[j]:.0f}) / {n_cat_pop[j]}")
     for title, ks in (("weaknesses", weak), ("strengths", strong)):
         print(f"{title} (share of positional loss, you vs peers):")
         for k in ks:
