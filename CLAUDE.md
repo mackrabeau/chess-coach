@@ -47,6 +47,10 @@ Key modules: `coach/mine.py` (position extraction, parquet schema incl. 7-ply `h
 
 Engine output per position: best_move, cp_best, cp_played, alt_move/cp_alt (2nd best), wp_*, wp_loss, label, critical, played_is_best, best_line/played_line/alt_line (UCI, length `pv_plies`=6, trimmed to even if game ends), *_complete flags. Evals from the mover's POV; each position starts with `ucinewgame` (hash cleared, order-independent).
 
+## Status (2026-11-13, 09b on real data)
+- 09b ran (GPU, ~202 passes/s, ~30 min total). Best-fit Elo validation on peers (Lichess rating bins, mean → fit): 2025 → 2035, 2074 → 2097, 2123 → 2167, 2172 → 2221; all peers 2083 → 2104. Tracks rating monotonically, slight upward bias growing with rating (fit slope ≈ 1.27× real; real ≈ 2025 + 0.79·(fit − 2035)).
+- Mack: best fit **1923 [1892, 1954]** (chess.com median rating in his analyzed games 1789; current ~1922). Calibrated ≈ 1940 Lichess-equivalent, but that's an extrapolation below the validated 2000–2200 range. Conflicts with the engine-loss calibration (~2100–2150): Maia measures *how human-like-at-Elo-X the move choices are*, engine loss measures accuracy. Open: domain shift (chess.com vs Lichess, 10|0 vs increments), averaging over his climb (1750 → 1922), or a real style-vs-accuracy gap. Next diagnostic: fit by his chess.com rating band / quarter.
+
 ## Status (2026-11-13, later)
 - 09a on Mack's real data (GPU, cuda amp): history helps both sets (log-lik −1.196 vs −1.267 peers, −1.216 vs −1.283 Mack; top-1 59.2/56.8% and 58.5/56.0%) → use history. P(best) rises monotonically 1100→2700 (0.32→0.44 peers, 0.32→0.42 Mack); top-1 changes 1900→2300 in 15–16%; KL self −400 ≈ 0.06 vs opponent −400 ≈ 0.003. Speed 197 passes/s on GTX 1660 Super → full 09b pass ≈ 30 min.
 - 09b written; tested on fake data (fit mechanics checked: played==best positions fit 2500, others 1100). Not yet run on real data.
