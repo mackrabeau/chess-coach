@@ -58,3 +58,6 @@ quiesce:
   max_extra_plies: 8
   forced_gap: 0.15
   forced_max_legal: 2
+deep:
+  plies: 20
+  nodes: 5000

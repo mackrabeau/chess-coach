@@ -23,7 +23,7 @@ from coach.config import data_dir, load_config
 from coach.ideas import IdeaModel, move_tracks
 from coach.motifs import tactic_labels
 from coach.report import page, position_card
-from coach.results import load_with_deltas
+from coach.results import load_deep, load_with_deltas
 
 
 def main() -> None:
@@ -36,7 +36,7 @@ def main() -> None:
 
     df, D, names = load_with_deltas(cfg, "population")
     tr = move_tracks(model, cfg, df, D, names)
-    tl = tactic_labels(df, tr)
+    tl = tactic_labels(df, tr, load_deep(cfg, "population"))
     counts = tl.category.value_counts()
     loss = df.wp_loss.to_numpy()
 
@@ -62,13 +62,14 @@ def main() -> None:
             + f"<div class='muted' style='font-size:12px;margin-top:4px'>missed: "
               f"{html.escape(', '.join(sub.motifs_missed[j]) or '—')} · allowed: "
               f"{html.escape(', '.join(sub.motifs_allowed[j]) or '—')} · "
-              f"best line {sub.gain[j]:+d}, played line {sub.loss[j]:+d} material</div></div>"
+              f"best line {sub.gain[j]:+d}, played line {sub.loss[j]:+d} material"
+              f"{' · found by the deep pass (06c)' if sub.deep[j] else ''}</div></div>"
             for j in ids)
         parts.append(f"<h2 id='c{i}'>{html.escape(c)} <span class='muted'>({n})</span></h2>"
                      f"<div class='grid'>{cards}</div>")
     path = data_dir(cfg, "ideas") / "tactics_report.html"
     path.write_text(page("Tactics report", "".join(parts)), encoding="utf-8")
-    print(f"{len(tl):,} peer blunders + tactical mistakes; categories:")
+    print(f"{len(tl):,} peer blunders + tactical mistakes ({tl.deep.sum():,} classified via deep lines); categories:")
     for c, n in counts.items():
         print(f"  {c:34s} {n:5d}  ({n / len(tl):.0%})")
     print(f"wrote {path}")

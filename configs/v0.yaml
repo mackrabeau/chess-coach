@@ -76,3 +76,7 @@ quiesce:                 # 03_settle_lines.py: extend lines until the end positi
   max_extra_plies: 8     # MUST be even
   forced_gap: 0.15       # "only move": best beats 2nd best by >= this win prob -> keep going
   forced_max_legal: 2    # <= this many legal moves -> keep going
+
+deep:                    # 06c_deepen_tactics.py: blunders with no material swing in the settled lines
+  plies: 20              # continue best and played lines by up to this many plies
+  nodes: 100000          # per search

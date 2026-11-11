@@ -34,7 +34,7 @@ from coach.config import data_dir, load_config
 from coach.ideas import IdeaModel, move_tracks, shares, track, track_cfg
 from coach.motifs import tactic_labels
 from coach.report import feats_html, page, position_card
-from coach.results import load_with_deltas
+from coach.results import load_deep, load_with_deltas
 
 
 def mistake_codes(model: IdeaModel, df: pd.DataFrame, D: dict, tr: np.ndarray):
@@ -158,7 +158,8 @@ def main() -> None:
     rate_me = (miss_me + s * rate_pop) / (n_me + s)
 
     # Tactical / blunder track: direction (missed vs allowed) x motif
-    tl_pop, tl_me = tactic_labels(pop, tr_pop), tactic_labels(me, tr_me)
+    tl_pop = tactic_labels(pop, tr_pop, load_deep(cfg, "population"))
+    tl_me = tactic_labels(me, tr_me, load_deep(cfg, "player"))
     cats = sorted(set(tl_pop.category) | set(tl_me.category))
     n_cat_pop = tl_pop.category.value_counts().reindex(cats, fill_value=0).to_numpy()
     n_cat_me = tl_me.category.value_counts().reindex(cats, fill_value=0).to_numpy()
@@ -168,6 +169,15 @@ def main() -> None:
     t_lo, t_hi = ci(game_bootstrap(me, tl_me.index.to_numpy(), oh, B))
     t_ratio = t_me / np.maximum(t_pop, 1e-9)
     min_n = rcfg.get("min_tactic_n", 10)   # peer count needed before a category is compared
+
+    # Blunders still without a material swing: by game phase
+    phases = ["opening", "middlegame", "endgame"]
+    nm_pop = tl_pop[tl_pop.direction == "no_material"]
+    nm_me = tl_me[tl_me.direction == "no_material"]
+    ph_pop = per100(pop, nm_pop.index.to_numpy(), nm_pop.phase, phases)
+    ph_me = per100(me, nm_me.index.to_numpy(), nm_me.phase, phases)
+    oh_ph = np.stack([(nm_me.phase == p_).to_numpy() for p_ in phases], 1) * me.wp_loss.to_numpy()[nm_me.index, None]
+    ph_lo, ph_hi = ci(game_bootstrap(me, nm_me.index.to_numpy(), oh_ph, B))
 
     links = chesscom_links(cfg)
     # Stable ideas only, ranked by share ratio you / peers. "clear" needs the peer share
@@ -242,6 +252,16 @@ def main() -> None:
                 f"{min_n} peer examples are hidden; no verdict when you'd expect fewer than {min_exp} at the "
                 f"peer rate.</p>")
 
+    def phase_table():
+        rows = "".join(
+            f"<tr><td>{p_}</td><td>{ph_me[i]:.2f} <span class='muted'>[{ph_lo[i]:.2f}, {ph_hi[i]:.2f}]"
+            f"</span></td><td>{ph_pop[i]:.2f}</td><td>{ph_me[i] / max(ph_pop[i], 1e-9):.2f}×</td></tr>"
+            for i, p_ in enumerate(phases))
+        return ("<h3>Blunders with no material swing, by phase</h3><table><tr><th>phase</th>"
+                "<th>you, per 100 moves (90% CI)</th><th>peers</th><th>ratio</th></tr>" + rows + "</table>"
+                "<p class='muted'>No ≥ 2-pawn material swing even after the deep pass: let a win slip, "
+                "equal to lost, or a large positional drop.</p>")
+
     def tactic_examples():
         weak_t = [j for j in shown if t_me[j] > t_pop[j]][:2]
         out = []
@@ -299,6 +319,7 @@ def main() -> None:
         f"your 90% interval and the ratio is at least {min_ratio}× (or at most 1/{min_ratio}); "
         "“within noise” rows are leads, not conclusions.</p>",
         "<h2>Tactics: what your blunders and tactical mistakes are made of</h2>", tactic_table(),
+        phase_table(),
         tactic_examples(),
         *[idea_section(k) for k in weak],
     ]
@@ -313,6 +334,9 @@ def main() -> None:
         v = "CLEAR" if "clear" in tactic_verdict(j) else "few" if "too few" in tactic_verdict(j) else "noise"
         print(f"  {cats[j]:34s} {t_me[j]:5.2f} [{t_lo[j]:.2f}, {t_hi[j]:.2f}] vs {t_pop[j]:5.2f}  "
               f"{t_ratio[j]:.2f}x  {v:5s}  n {n_cat_me[j]} (exp {expected[j]:.0f}) / {n_cat_pop[j]}")
+    print("no-material blunders by phase (per 100 moves, you vs peers):")
+    for i, p_ in enumerate(phases):
+        print(f"  {p_:10s} {ph_me[i]:5.2f} [{ph_lo[i]:.2f}, {ph_hi[i]:.2f}] vs {ph_pop[i]:5.2f}")
     for title, ks in (("weaknesses", weak), ("strengths", strong)):
         print(f"{title} (share of positional loss, you vs peers):")
         for k in ks:

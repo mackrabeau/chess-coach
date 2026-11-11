@@ -65,3 +65,8 @@ def load_with_deltas(cfg: dict, which: str):
     deltas = {k: z[k][rows] for k in ("F0", "dB", "dP", "dA")}
     df["phase"] = z["phase"][rows]
     return df, deltas, list(z["feature_names"])
+
+
+def load_deep(cfg: dict, which: str):
+    """Deep tactic lines from 06c (None if it hasn't run)."""
+    return read_parts(data_dir(cfg, which, "engine_deep"))

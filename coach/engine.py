@@ -62,6 +62,14 @@ SETTLE_SCHEMA = pa.schema(
 )
 
 
+# Deep pass (06c_deepen_tactics.py): blunders with no material swing in the settled lines,
+# continued much further to see whether material changes hands beyond the horizon.
+DEEP_SCHEMA = pa.schema([
+    ("pos_id", pa.string()), ("error", pa.string()),
+    ("best_line_deep", pa.list_(pa.string())), ("played_line_deep", pa.list_(pa.string())),
+])
+
+
 def win_prob(cp: float) -> float:
     """Lichess win-probability model, in [0, 1], from the side to move."""
     return 1.0 / (1.0 + math.exp(-0.00368208 * cp))
@@ -261,3 +269,24 @@ class Analyzer:
             out[f"{L}_q_trigger"] = r["trigger"]
             out[f"{L}_q_end"] = r["end"]
         return out
+
+    # ------------------------------------------------------------------ deep pass
+
+    def deepen_line(self, fen: str, line: list[str], game, plies: int, nodes: int) -> list[str]:
+        """Continue `line` with the engine's best move for up to `plies` more plies
+        (stops at game over). Trimmed to even length so the root's side is to move at the
+        end, except when the last move is checkmate (only used for classification, not features)."""
+        b = chess.Board(fen)
+        for u in line:
+            b.push_uci(u)
+        ext: list[str] = []
+        while len(ext) < plies and not b.is_game_over(claim_draw=True):
+            info = self._analyse(b, nodes, game)
+            pv = info.get("pv") or []
+            if not pv:
+                break
+            b.push(pv[0])
+            ext.append(pv[0].uci())
+        if len(ext) % 2 and not b.is_checkmate():
+            ext.pop()
+        return list(line) + ext
