@@ -91,3 +91,6 @@ maia:                    # Maia-3 (pip install git+https://github.com/CSSLab/mai
   surprise: 0.5          # 'surprising miss' = Maia at your level finds the best move at least this often
   grid: [700, 2500, 100]   # self-Elo grid for the difficulty pass (09b); starts low for the early history
   batch: 64              # positions per forward pass on GPU (x grid size); lower if out of memory
+
+endgames:
+  syzygy_path: D:/chess/syzygy   # folder with the Syzygy 3-4-5 .rtbw + .rtbz files (11_endgames)

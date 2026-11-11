@@ -71,3 +71,6 @@ maia:                    # Maia-3 (pip install git+https://github.com/CSSLab/mai
   surprise: 0.5
   grid: [1100, 2500, 200]
   batch: 16
+
+endgames:
+  syzygy_path: /tmp/claude-0/-home-user-chess-coach/bb1dbe94-70fd-5058-a21b-fc58e289a1dd/scratchpad/syzygy   # folder with the Syzygy 3-4-5 .rtbw + .rtbz files (11_endgames)
