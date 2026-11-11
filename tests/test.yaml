@@ -74,3 +74,13 @@ maia:                    # Maia-3 (pip install git+https://github.com/CSSLab/mai
 
 endgames:
   syzygy_path: /tmp/claude-0/-home-user-chess-coach/bb1dbe94-70fd-5058-a21b-fc58e289a1dd/scratchpad/syzygy   # folder with the Syzygy 3-4-5 .rtbw + .rtbz files (11_endgames)
+
+practical:               # 12_practical_value.py (exploitation step 2)
+  contested: [0.2, 0.8]  # positions sampled: best-move win prob in this range
+  n: 20
+  delta: 0.05            # candidates within this much win prob of Stockfish's best
+  multipv: 5
+  nodes_root: 20000
+  nodes_reply: 10000
+  reply_mass: 0.9        # Maia replies listed until they cover this much probability
+  max_replies: 6
