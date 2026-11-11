@@ -64,4 +64,6 @@ deep:
 
 maia:                    # Maia-3 (pip install git+https://github.com/CSSLab/maia3)
   model: 23m             # 5m / 23m / 79m
-  player_elo: 2125       # your strength on the Lichess scale (02b + band split: ~2100-2150)
+  player_elo: 2125
+  grid: [1100, 2500, 200]
+  batch: 16
