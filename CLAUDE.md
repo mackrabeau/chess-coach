@@ -45,6 +45,10 @@ Key modules: `coach/mine.py` (position extraction, parquet schema incl. 7-ply `h
 
 Engine output per position: best_move, cp_best, cp_played, alt_move/cp_alt (2nd best), wp_*, wp_loss, label, critical, played_is_best, best_line/played_line/alt_line (UCI, length `pv_plies`=6, trimmed to even if game ends), *_complete flags. Evals from the mover's POV; each position starts with `ucinewgame` (hash cleared, order-independent).
 
+## Status (2026-11-12, later)
+- After cash-in rule + deep pass (real data): deep pass reclassified 332/676 peer no-swing cases. Missed pin dropped to 1.58× (11 vs 8 exp, noise) → earlier "clear" was partly incidental pins. Holding: allowed winning capture 0.78× (60 vs 77 exp, strength); development 0.67× (strength); lead: "let a win slip" 1.62× (24 vs 15 exp, CI lower bound at peer value).
+- Rating-scale check (peer band split by Lichess mover_rating), loss per 100 moves: 2000–2099 total 4.28 / blunder 2.14 / positional 1.24; 2100–2200 total 3.73 / blunder 1.58 / positional 1.20; Mack total 3.73 / blunder 1.89 / positional 1.00. Within the band the rating gradient is almost all blunders; positional barely moves. Mack ≈ Lichess ~2150 overall, ~2100 on blunders, positional better than both halves (not a band artifact). Use ~2100–2150 as his Maia Elo (Lichess scale), not 1922.
+
 ## Status (2026-11-12)
 - Real data with tracks (NMF, K=16): 4,586 peer mistakes → positional 2,943 (64%), decided 1,312 (29%), tactical 327 (7%). Null baseline ≈ real stability at every K → switched to concept groups (tested on fake data; not yet run on real data).
 - 08 breakdown, Mack vs peers per 100 moves: blunder 1.89 vs 1.93, tactical 0.15 vs 0.18, positional 1.00 [0.89, 1.10] vs 1.23 (his whole edge), decided 0.41 vs 0.45, small inaccuracies 0.29 vs 0.29. Blunders ≈ half his total loss.
