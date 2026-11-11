@@ -34,6 +34,7 @@ import numpy as np
 import pandas as pd
 
 from coach.config import data_dir, load_config, resolve
+from coach.endgame_features import material_class
 from coach.handcrafted import phase
 from coach.outcomes import mover_results
 from coach.report import page, position_card
@@ -98,21 +99,6 @@ def counterplay(df):
                     "score": sub.score.iloc[0]})
     o = pd.DataFrame(out)
     return o[o.score.notna()] if len(o) else o     # only games with a known result
-
-
-def material_class(b: chess.Board) -> str:
-    pieces = {pt: len(b.pieces(pt, chess.WHITE)) + len(b.pieces(pt, chess.BLACK))
-              for pt in (chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN)}
-    q, r, minors = pieces[chess.QUEEN], pieces[chess.ROOK], pieces[chess.KNIGHT] + pieces[chess.BISHOP]
-    if q == r == minors == 0:
-        return "pawn endings"
-    if q == minors == 0:
-        return "rook endings"
-    if r == minors == 0:
-        return "queen endings"
-    if q == r == 0:
-        return "minor-piece endings"
-    return "mixed"
 
 
 def wdl3(v: int) -> int:
