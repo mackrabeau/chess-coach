@@ -44,6 +44,7 @@ def main() -> None:
     mass = W.sum(0)
     order = sorted(range(model.k), key=lambda k: (not model.is_stable(k), -mass[k]))
     n_stable = sum(model.is_stable(k) for k in range(model.k))
+    is_concepts = hasattr(model, "concept_names")
 
     top_n = cfg["report"]["top_positions"]
     parts = [
@@ -51,8 +52,10 @@ def main() -> None:
         f"<p class='muted'>{len(sub):,} positional population mistakes (Lichess rapid around "
         f"{model.meta.get('rating_center')}; best-move win prob in {model.meta.get('contested')}, "
         f"settled line ends within {model.meta.get('tactical_material')} pawns of material), "
-        f"K = {model.k} ideas, {n_stable} stable across "
-        f"split halves (cos ≥ {model.stable_cos}). Each idea is a pattern in how the position at the "
+        + (f"{model.k} hand-defined concept groups (feature group × side). "
+           if is_concepts else
+           f"K = {model.k} ideas, {n_stable} stable across split halves (cos ≥ {model.stable_cos}). ")
+        + f"Each idea is a pattern in how the position at the "
         f"end of the engine's line differs from the end of the played line. ↑ = the best line "
         f"ends with more of this than the played line, ↓ = less. Green arrow = best move, red = played.</p>",
         "<p class='muted'>Judge each idea by its boards, not its label: if most of the top positions "
@@ -66,10 +69,11 @@ def main() -> None:
         ph = sub.phase[members].value_counts(normalize=True)
         ph_txt = ", ".join(f"{p} {v:.0%}" for p, v in ph.items()) or "—"
         parts.append(
-            f"<h2 id='idea-{k}'>Idea {k}</h2>"
-            f"<div><span class='tag{' stable' if stable else ''}'>"
-            f"{'stable' if stable else 'unstable'} · cos {model.stability[k]:.2f}</span>"
-            f"<span class='muted'>dominant in {members.sum():,} positions "
+            f"<h2 id='idea-{k}'>{html.escape(model.name(k))}</h2>"
+            + ("<div>" if is_concepts else
+               f"<div><span class='tag{' stable' if stable else ''}'>"
+               f"{'stable' if stable else 'unstable'} · cos {model.stability[k]:.2f}</span>")
+            + f"<span class='muted'>dominant in {members.sum():,} positions "
             f"({members.mean():.1%}) · mean loss {sub.wp_loss[members].mean():.1%} · {html.escape(ph_txt)}"
             f"</span></div>"
             + feats_html(model.describe(k))

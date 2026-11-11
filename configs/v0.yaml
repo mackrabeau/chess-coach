@@ -48,6 +48,7 @@ engine:
   critical_gap: 0.10     # best move beats 2nd best by at least this much
 
 ideas:
+  method: concepts       # concepts (hand-defined groups, coach/concepts.py) | nmf (learned atoms; for SAE features)
   n_atoms: 16            # final dictionary size
   sweep: [8, 12, 16, 20, 30]  # also fit these to see how many atoms are stable at each size
   min_norm: 0.5          # drop near-identical lines (scaled feature units)
@@ -65,6 +66,7 @@ report:
   drills: 8              # population positions per idea, as puzzles
   bootstrap: 300         # resamples (over games) for the player's confidence intervals
   prior_strength: 10     # pseudo-counts pulling your critical miss rate toward the population
+  min_ratio: 1.25        # "clear" also needs you/peers share ratio >= this (or <= 1/this)
 
 quiesce:                 # 03_settle_lines.py: extend lines until the end position is quiet
   use: true              # 05 onwards use the settled lines (once 03 has covered every position)

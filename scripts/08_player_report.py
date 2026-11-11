@@ -168,33 +168,45 @@ def main() -> None:
     rate_me = (miss_me + s * rate_pop) / (n_me + s)
 
     links = chesscom_links(cfg)
-    # Stable ideas only; biggest relative gap first.
+    # Stable ideas only, ranked by share ratio you / peers. "clear" needs the peer share
+    # outside your 90% interval AND a ratio of at least min_ratio (or at most 1/min_ratio).
     stable = [k for k in range(model.k) if model.is_stable(k)]
     n_show = rcfg["player_top_ideas"]
-    weak = sorted([k for k in stable if diff[k] > 0], key=lambda k: -diff[k])[:n_show]
-    strong = sorted([k for k in stable if diff[k] < 0], key=lambda k: diff[k])[:n_show]
+    min_ratio = rcfg.get("min_ratio", 1.25)
+    ratio = rel_me / np.maximum(rel_pop, 1e-12)
+    weak = sorted([k for k in stable if diff[k] > 0], key=lambda k: -ratio[k])[:n_show]
+    strong = sorted([k for k in stable if diff[k] < 0], key=lambda k: ratio[k])[:n_show]
+
+    def is_clear(k):
+        if rel_lo[k] > rel_pop[k] and ratio[k] >= min_ratio:
+            return "weak"
+        if rel_hi[k] < rel_pop[k] and ratio[k] <= 1 / min_ratio:
+            return "strong"
+        return ""
 
     def verdict(k):
-        if rel_lo[k] > rel_pop[k]:
-            return "<span class='down'>clear</span>"
-        if rel_hi[k] < rel_pop[k]:
-            return "<span class='up'>clear</span>"
+        c = is_clear(k)
+        if c:
+            return f"<span class='{'down' if c == 'weak' else 'up'}'>clear</span>"
         return "<span class='muted'>within noise</span>"
+
+    def title(k):
+        return html.escape(model.name(k))
 
     def name(k):
         return html.escape(", ".join(f"{a}{n}" for a, n, _ in model.describe(k, 2)))
 
     def stat_table(ks):
         rows = "".join(
-            f"<tr><td><a href='#idea-{k}'>Idea {k}</a> <span class='muted'>{name(k)}</span></td>"
-            f"<td>{rel_me[k]:.0%} <span class='muted'>[{rel_lo[k]:.0%}, {rel_hi[k]:.0%}]</span></td>"
-            f"<td>{rel_pop[k]:.0%}</td><td>{verdict(k)}</td>"
+            f"<tr><td><a href='#idea-{k}'>{title(k)}</a> <span class='muted'>{name(k)}</span></td>"
+            f"<td>{rel_me[k]:.1%} <span class='muted'>[{rel_lo[k]:.1%}, {rel_hi[k]:.1%}]</span></td>"
+            f"<td>{rel_pop[k]:.1%}</td><td>{ratio[k]:.2f}×</td><td>{verdict(k)}</td>"
             f"<td>{leak_me[k]:.2f} <span class='muted'>[{lo[k]:.2f}, {hi[k]:.2f}]</span></td>"
             f"<td>{leak_pop[k]:.2f}</td>"
             f"<td>{rate_me[k]:.0%} <span class='muted'>(n={n_me[k]})</span></td><td>{rate_pop[k]:.0%}</td></tr>"
             for k in ks)
         return ("<table><tr><th>idea</th><th>share of your positional loss (90% CI)</th><th>peers</th>"
-                "<th>vs peers</th><th>leak / 100 moves</th><th>peers</th>"
+                "<th>ratio</th><th>vs peers</th><th>leak / 100 moves</th><th>peers</th>"
                 "<th>critical miss rate</th><th>peers</th></tr>" + rows + "</table>")
 
     def breakdown_table():
@@ -216,7 +228,7 @@ def main() -> None:
         drill_idx = np.argsort(-(pS[:, k]))[: rcfg["drills"]]
         drills = [position_card(pop.iloc[pr[i]], puzzle=True) for i in drill_idx if pS[i, k] > 0.3]
         return (
-            f"<h2 id='idea-{k}'>Idea {k}</h2>"
+            f"<h2 id='idea-{k}'>{title(k)}</h2>"
             f"<p class='muted'>You lose {leak_me[k]:.2f}% win probability per 100 moves to this idea "
             f"vs {leak_pop[k]:.2f}% for peers. In critical positions where it decides the best move, "
             f"you miss it {rate_me[k]:.0%} of the time (peers {rate_pop[k]:.0%}, your n = {n_me[k]}).</p>"
@@ -241,7 +253,8 @@ def main() -> None:
         stat_table(strong) if strong else "<p>None among stable ideas.</p>",
         "<p class='muted'>Share = this idea's part of your positional losses, so it compares your "
         "profile with peers' independent of overall strength. “clear” = the peer share is outside "
-        "your 90% interval; “within noise” rows are leads, not conclusions.</p>",
+        f"your 90% interval and the ratio is at least {min_ratio}× (or at most 1/{min_ratio}); "
+        "“within noise” rows are leads, not conclusions.</p>",
         *[idea_section(k) for k in weak],
     ]
     path = data_dir(cfg, "player") / "player_report.html"
@@ -253,9 +266,10 @@ def main() -> None:
     for title, ks in (("weaknesses", weak), ("strengths", strong)):
         print(f"{title} (share of positional loss, you vs peers):")
         for k in ks:
-            v = "CLEAR" if (rel_lo[k] > rel_pop[k] or rel_hi[k] < rel_pop[k]) else "noise"
-            print(f"  idea {k:2d}: {rel_me[k]:.0%} [{rel_lo[k]:.0%}, {rel_hi[k]:.0%}] vs {rel_pop[k]:.0%}  "
-                  f"{v:5s}  {', '.join(f'{a}{n}' for a, n, _ in model.describe(k, 3))}")
+            v = "CLEAR" if is_clear(k) else "noise"
+            print(f"  {model.name(k):28s} {rel_me[k]:5.1%} [{rel_lo[k]:.1%}, {rel_hi[k]:.1%}] vs "
+                  f"{rel_pop[k]:5.1%}  {ratio[k]:.2f}x  {v:5s}  "
+                  f"{', '.join(f'{a}{n}' for a, n, _ in model.describe(k, 3))}")
 
 
 if __name__ == "__main__":

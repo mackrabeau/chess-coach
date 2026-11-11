@@ -32,6 +32,7 @@ engine:
   blunder_loss: 0.2
   critical_gap: 0.1
 ideas:
+  method: concepts
   n_atoms: 6
   sweep:
   - 4
@@ -50,6 +51,7 @@ report:
   drills: 8
   bootstrap: 50
   prior_strength: 10
+  min_ratio: 1.25
 quiesce:
   use: true
   nodes: 5000

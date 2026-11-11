@@ -146,6 +146,9 @@ class IdeaModel:
             out.append((arrow, readable(self.feature_names[i % D]), float(comp[i])))
         return out
 
+    def name(self, atom: int) -> str:
+        return f"Idea {atom}"
+
     def is_stable(self, atom: int) -> bool:
         return bool(self.stability[atom] >= self.stable_cos)
 

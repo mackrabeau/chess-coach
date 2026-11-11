@@ -1,4 +1,9 @@
-"""Learn the idea dictionary from population mistakes, with a split-half stability check.
+"""Learn the idea dictionary from population mistakes.
+
+ideas.method = concepts (default): hand-defined concept groups (coach/concepts.py). NMF on
+the handcrafted features found about as many stable atoms on shuffled null data as on
+real data, so it isn't discovering structure there. method = nmf keeps the NMF path (for
+SAE features later) with the split-half stability check against the null.
 
 Only *positional* mistakes are used: the position is still contested (best-move win prob
 inside ideas.contested) and the two settled line ends have about the same material
@@ -25,10 +30,36 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np
 import pandas as pd
 
+from coach.concepts import ConceptModel, concept_index
 from coach.config import data_dir, load_config
 from coach.ideas import (IdeaModel, column_shuffle, delta_scale, fit_nmf, make_inputs, match_atoms,
                          n80, split_by_game, track)
 from coach.results import load_with_deltas
+
+
+def concepts(cfg, icfg, df, d_all, use, scale, names, meta) -> None:
+    """Hand-defined concept groups (default for handcrafted features): no fitting beyond
+    the scale and each concept's typical direction."""
+    model = ConceptModel(scale=scale, feature_names=names, min_norm=icfg["min_norm"],
+                         concept_names=[], concept_cols=[], meta=meta)
+    model.concept_names, model.concept_cols = concept_index(names)
+    model.fit_directions(d_all[use])
+    S, keep, norms = model.encode(d_all[use])
+    sub = df[use].reset_index(drop=True)[keep].reset_index(drop=True)
+    model.meta["n_train"] = len(sub)
+    out = data_dir(cfg, "ideas")
+    model.save(out / "model.pkl")
+    np.savez_compressed(out / "pop_codes.npz", pos_id=sub.pos_id.to_numpy().astype(str), W=S,
+                        norm=norms[keep])
+    loss = sub.wp_loss.to_numpy()
+    share = (S * loss[:, None]).sum(0) / loss.sum()
+    dom = np.bincount(S.argmax(1), minlength=model.k) / len(S)
+    print(f"concept groups on {len(sub):,} positional mistakes "
+          f"(mean top share {S.max(1).mean():.0%} per position):")
+    for k in np.argsort(-share):
+        d = ", ".join(f"{a}{n}" for a, n, _ in model.describe(k, 3))
+        print(f"  {model.name(k):28s} {share[k]:5.1%} of positional loss, dominant in {dom[k]:5.1%}  | {d}")
+    print(f"saved concept model -> {out}")
 
 
 def main() -> None:
@@ -47,6 +78,12 @@ def main() -> None:
     print(f"{mistake.sum():,} population mistakes: "
           + ", ".join(f"{k} {v:,} ({v / mistake.sum():.0%})" for k, v in counts.items()))
     use = mistake & (tr == "positional")
+    meta = {"rating_center": cfg["population"]["rating_center"],
+            "contested": list(icfg["contested"]), "tactical_material": icfg["tactical_material"],
+            "track_counts": counts.to_dict()}
+    if icfg.get("method", "concepts") == "concepts":
+        return concepts(cfg, icfg, df, d_all, use, scale, names, meta)
+
     X, keep, norms = make_inputs(d_all[use], scale, icfg["min_norm"])
     sub = df[use].reset_index(drop=True)[keep].reset_index(drop=True)
     print(f"learning positional ideas from {len(X):,} mistakes "
@@ -95,10 +132,7 @@ def main() -> None:
     nmf, stab = final
     model = IdeaModel(nmf=nmf, scale=scale, feature_names=names, min_norm=icfg["min_norm"],
                       stability=stab, stable_cos=icfg["stable_cos"],
-                      meta={"n_train": len(X), "rating_center": cfg["population"]["rating_center"],
-                            "contested": list(icfg["contested"]),
-                            "tactical_material": icfg["tactical_material"],
-                            "alpha_H": ah, "track_counts": counts.to_dict()})
+                      meta={**meta, "n_train": len(X), "alpha_H": ah})
     model.save(out / "model.pkl")
     W = nmf.transform(X)
     np.savez_compressed(out / "pop_codes.npz", pos_id=sub.pos_id.to_numpy().astype(str), W=W,
