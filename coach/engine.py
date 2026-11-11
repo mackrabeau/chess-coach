@@ -290,3 +290,50 @@ class Analyzer:
         if len(ext) % 2 and not b.is_checkmate():
             ext.pop()
         return list(line) + ext
+
+    # ------------------------------------------------------------------ practical value (12)
+
+    def candidates(self, fen: str, played: str | None, k: int, nodes: int, delta: float):
+        """Stockfish's top-k moves within `delta` win probability of the best, plus the played
+        move. Returns ([(uci, wp for the mover)], best_uci)."""
+        b = chess.Board(fen)
+        me = b.turn
+        game = object()
+        n = b.legal_moves.count()
+        infos = self._analyse(b, nodes, game, multipv=min(k, n))
+        cands = [(i["pv"][0].uci(), win_prob(_cp(i["score"], me))) for i in infos if i.get("pv")]
+        best_w = cands[0][1]
+        keep = [(m, w) for m, w in cands if w >= best_w - delta]
+        if played and played not in {m for m, _ in keep}:
+            info = self._analyse(b, nodes, game, root_moves=[chess.Move.from_uci(played)])
+            keep.append((played, win_prob(_cp(info["score"], me))))
+        return keep, cands[0][0]
+
+    def reply_values(self, fen: str, move: str, replies: list[str], nodes: int):
+        """After `move`: the opponent's best reply r*, its value V* (mover's win prob) and the
+        value after each listed reply. Terminal positions are scored directly."""
+        b = chess.Board(fen)
+        me = b.turn
+        game = object()
+        b.push_uci(move)
+        if b.is_checkmate():
+            return None, 1.0, {}
+        if b.is_game_over(claim_draw=True):
+            return None, 0.5, {}
+        info = self._analyse(b, nodes, game)
+        rstar = info["pv"][0].uci() if info.get("pv") else None
+        vstar = win_prob(_cp(info["score"], me))
+        vals = {}
+        for r in replies:
+            if r == rstar:
+                vals[r] = vstar
+                continue
+            b.push_uci(r)
+            if b.is_checkmate():
+                vals[r] = 0.0                     # the mover got mated
+            elif b.is_game_over(claim_draw=True):
+                vals[r] = 0.5
+            else:
+                vals[r] = win_prob(_cp(self._analyse(b, nodes, game)["score"], me))
+            b.pop()
+        return rstar, vstar, vals
