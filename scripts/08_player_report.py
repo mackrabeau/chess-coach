@@ -31,25 +31,10 @@ import numpy as np
 import pandas as pd
 
 from coach.config import data_dir, load_config
-from coach.ideas import IdeaModel, shares, track
+from coach.ideas import IdeaModel, move_tracks, shares, track, track_cfg
+from coach.motifs import tactic_labels
 from coach.report import feats_html, page, position_card
 from coach.results import load_with_deltas
-
-
-def track_cfg(model: IdeaModel, cfg: dict) -> dict:
-    """The routing the model was trained with (falls back to the config for old models)."""
-    m, i = model.meta, cfg["ideas"]
-    return {"contested": m.get("contested", i["contested"]),
-            "tactical_material": m.get("tactical_material", i["tactical_material"])}
-
-
-def tracks(model, cfg, df, D, names) -> np.ndarray:
-    """Per move: ok / blunder / decided / tactical / positional / unusable."""
-    tr = track(df.wp_best.to_numpy(), D["dB"] - D["dP"], names, track_cfg(model, cfg))
-    out = np.where(tr == "", "unusable", tr).astype(object)
-    out[(df.label == "ok").to_numpy() | df.played_is_best.to_numpy()] = "ok"
-    out[(df.label == "blunder").to_numpy() & ~df.played_is_best.to_numpy()] = "blunder"
-    return out
 
 
 def mistake_codes(model: IdeaModel, df: pd.DataFrame, D: dict, tr: np.ndarray):
@@ -104,6 +89,11 @@ def breakdown(df, tr) -> np.ndarray:
     return np.array([100 * loss[tr == t].sum() / max(len(df), 1) for t in TRACKS])
 
 
+def per100(df, rows: np.ndarray, cats: pd.Series, names: list[str]) -> np.ndarray:
+    loss = df.wp_loss.to_numpy()
+    return np.array([100 * loss[rows[cats.to_numpy() == c]].sum() / max(len(df), 1) for c in names])
+
+
 def critical_stats(model, cfg, df, D, names):
     """Per idea: (n critical positions where it's dominant, misses). Only positions routed
     'positional' when comparing the best line with the 2nd-best line."""
@@ -141,7 +131,7 @@ def main() -> None:
 
     pop, Dp, names = load_with_deltas(cfg, "population")
     me, Dm, _ = load_with_deltas(cfg, "player")
-    tr_pop, tr_me = tracks(model, cfg, pop, Dp, names), tracks(model, cfg, me, Dm, names)
+    tr_pop, tr_me = move_tracks(model, cfg, pop, Dp, names), move_tracks(model, cfg, me, Dm, names)
     pr, _, pS = mistake_codes(model, pop, Dp, tr_pop)
     mr, mW, mS = mistake_codes(model, me, Dm, tr_me)
     B = rcfg["bootstrap"]
@@ -166,6 +156,18 @@ def main() -> None:
     rate_pop = (miss_pop + 1) / (n_pop + 2)
     s = rcfg["prior_strength"]
     rate_me = (miss_me + s * rate_pop) / (n_me + s)
+
+    # Tactical / blunder track: direction (missed vs allowed) x motif
+    tl_pop, tl_me = tactic_labels(pop, tr_pop), tactic_labels(me, tr_me)
+    cats = sorted(set(tl_pop.category) | set(tl_me.category))
+    n_cat_pop = tl_pop.category.value_counts().reindex(cats, fill_value=0).to_numpy()
+    n_cat_me = tl_me.category.value_counts().reindex(cats, fill_value=0).to_numpy()
+    t_pop = per100(pop, tl_pop.index.to_numpy(), tl_pop.category, cats)
+    t_me = per100(me, tl_me.index.to_numpy(), tl_me.category, cats)
+    oh = np.stack([(tl_me.category == c).to_numpy() for c in cats], 1) * me.wp_loss.to_numpy()[tl_me.index, None]
+    t_lo, t_hi = ci(game_bootstrap(me, tl_me.index.to_numpy(), oh, B))
+    t_ratio = t_me / np.maximum(t_pop, 1e-9)
+    min_n = rcfg.get("min_tactic_n", 10)   # peer count needed before a category is compared
 
     links = chesscom_links(cfg)
     # Stable ideas only, ranked by share ratio you / peers. "clear" needs the peer share
@@ -208,6 +210,38 @@ def main() -> None:
         return ("<table><tr><th>idea</th><th>share of your positional loss (90% CI)</th><th>peers</th>"
                 "<th>ratio</th><th>vs peers</th><th>leak / 100 moves</th><th>peers</th>"
                 "<th>critical miss rate</th><th>peers</th></tr>" + rows + "</table>")
+
+    def tactic_verdict(j):
+        if t_lo[j] > t_pop[j] and t_ratio[j] >= min_ratio:
+            return "<span class='down'>clear</span>"
+        if t_hi[j] < t_pop[j] and t_ratio[j] <= 1 / min_ratio:
+            return "<span class='up'>clear</span>"
+        return "<span class='muted'>within noise</span>"
+
+    shown = [j for j in np.argsort(-(t_me - t_pop)) if n_cat_pop[j] >= min_n]
+
+    def tactic_table():
+        rows = "".join(
+            f"<tr><td>{html.escape(cats[j])}</td><td>{t_me[j]:.2f} <span class='muted'>"
+            f"[{t_lo[j]:.2f}, {t_hi[j]:.2f}]</span></td><td>{t_pop[j]:.2f}</td>"
+            f"<td>{t_ratio[j]:.2f}×</td><td>{tactic_verdict(j)}</td>"
+            f"<td>{n_cat_me[j]}</td><td>{n_cat_pop[j]}</td></tr>" for j in shown)
+        return ("<table><tr><th>what happened</th><th>you, per 100 moves (90% CI)</th><th>peers</th>"
+                "<th>ratio</th><th>vs peers</th><th>your n</th><th>peer n</th></tr>" + rows + "</table>"
+                f"<p class='muted'>Blunders and tactical mistakes. “missed” = the best line won ≥ 2 pawns of "
+                f"material you didn't take; “allowed” = your move let the opponent win ≥ 2. The motif is the "
+                f"first one detected in the relevant side's moves (heuristic). Categories with fewer than "
+                f"{min_n} peer examples are hidden.</p>")
+
+    def tactic_examples():
+        weak_t = [j for j in shown if t_me[j] > t_pop[j]][:2]
+        out = []
+        for j in weak_t:
+            ids = tl_me.index[tl_me.category == cats[j]]
+            ids = me.loc[ids].sort_values("wp_loss", ascending=False).index[: rcfg["player_examples"]]
+            cards = "".join(position_card(me.loc[i], link=links.get(me.game_id.at[i])) for i in ids)
+            out.append(f"<h3>{html.escape(cats[j])}: your positions</h3><div class='grid'>{cards}</div>")
+        return "".join(out)
 
     def breakdown_table():
         rows = "".join(
@@ -255,6 +289,8 @@ def main() -> None:
         "profile with peers' independent of overall strength. “clear” = the peer share is outside "
         f"your 90% interval and the ratio is at least {min_ratio}× (or at most 1/{min_ratio}); "
         "“within noise” rows are leads, not conclusions.</p>",
+        "<h2>Tactics: what your blunders and tactical mistakes are made of</h2>", tactic_table(),
+        tactic_examples(),
         *[idea_section(k) for k in weak],
     ]
     path = data_dir(cfg, "player") / "player_report.html"
@@ -263,6 +299,11 @@ def main() -> None:
     print("loss per 100 moves, you vs peers:")
     for i, t in enumerate(TRACKS):
         print(f"  {t:10s} {bd_me[i]:5.2f} [{bd_lo[i]:.2f}, {bd_hi[i]:.2f}]  vs {bd_pop[i]:5.2f}")
+    print("tactics (loss per 100 moves, you vs peers; peer n >= %d):" % min_n)
+    for j in shown:
+        v = "CLEAR" if "clear" in tactic_verdict(j) else "noise"
+        print(f"  {cats[j]:32s} {t_me[j]:5.2f} [{t_lo[j]:.2f}, {t_hi[j]:.2f}] vs {t_pop[j]:5.2f}  "
+              f"{t_ratio[j]:.2f}x  {v:5s}  n {n_cat_me[j]} / {n_cat_pop[j]}")
     for title, ks in (("weaknesses", weak), ("strengths", strong)):
         print(f"{title} (share of positional loss, you vs peers):")
         for k in ks:

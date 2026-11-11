@@ -67,6 +67,7 @@ report:
   bootstrap: 300         # resamples (over games) for the player's confidence intervals
   prior_strength: 10     # pseudo-counts pulling your critical miss rate toward the population
   min_ratio: 1.25        # "clear" also needs you/peers share ratio >= this (or <= 1/this)
+  min_tactic_n: 10       # tactics categories need this many peer examples to be compared
 
 quiesce:                 # 03_settle_lines.py: extend lines until the end position is quiet
   use: true              # 05 onwards use the settled lines (once 03 has covered every position)

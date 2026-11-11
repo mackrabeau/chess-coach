@@ -16,6 +16,7 @@ Owner: Mack (chess.com `bananaman987654321`, rapid ~1922, 1,652 rapid games; cli
 - **Ideas are learned on the population, not the player.** One player has too few mistakes to discover clusters; the population gives stable atoms plus a per-idea peer baseline.
 - **Tracks before clustering** (06/08, `coach/ideas.track`): mistakes with best-move wp outside `ideas.contested` [0.2, 0.8] → *decided* (conversion/defence, later); |material gap| between settled line ends ≥ `ideas.tactical_material` (2) → *tactical* (motif track, later); rest → *positional* → NMF. Why: on settled lines, 18% of mistakes had a ≥2-pawn gap, concentrated in decided positions (44% when wp_best < 0.2, 31% when > 0.8, 8–14% in between; the logistic barely moves there).
 - **Concept groups, not NMF, for the handcrafted features** (`ideas.method: concepts`, `coach/concepts.py`): 8 hand-defined feature groups × {your, opponent's} = 16 concepts; share $s_c = \lVert u_c\rVert^2/\lVert u\rVert^2$ with u = d / pooled Δ std. Why: on real positional mistakes NMF gave about as many split-half-stable atoms on column-shuffled null data as on real data (K=8: 7 vs 5 … K=30: 21 vs 20), so there was no co-occurrence structure for it to find. Caveat: bigger groups (piece activity has 8 features) get bigger absolute shares, so compare you vs peers (ratio), not shares across concepts. NMF path kept (`method: nmf`) for SAE features, where beating the null is the acceptance test.
+- **Tactics track** (`coach/motifs.py`, blunders + tactical mistakes): direction from material at the settled line ends vs root (missed = best line wins ≥ 2; allowed = played line loses ≥ 2; both; no material swing), motif = first detected in the relevant side's first 4 moves (mate/back-rank mate, promotion, fork [≥ 2 worthwhile non-pawn targets], discovered, remove defender, pin, skewer, winning capture, other). Heuristics, unit-tested on textbook positions only; check `tactics_report.html` on real data. 08 compares per category per 100 moves (categories with < `report.min_tactic_n` peer examples hidden).
 - **"clear" in 08** needs the peer share outside your 90% CI *and* a ratio ≥ `report.min_ratio` (1.25) or ≤ 1/1.25.
 - **NMF on unit-normalized, sign-split deltas** (NMF path only) (`[max(u,0), max(-u,0)]`), not k-means: positions can contain several ideas; NMF atoms read as "best line has more X / less Y". Direction = idea, norm = severity (stored separately).
 - **Split-half stability**: fit on two disjoint halves (split by game), Hungarian-match atoms by cosine; an atom is stable if cos >= 0.7 to both. Unstable atoms are shown but flagged.
@@ -35,6 +36,7 @@ Owner: Mack (chess.com `bananaman987654321`, rapid ~1922, 1,652 rapid games; cli
 | `05_build_deltas.py --set ...` | features at root + PV ends → F0, dB, dP, dA (NaN if line < 2 plies) | `data/<set>/deltas.npz` |
 | `06_learn_ideas.py` | routes mistakes into tracks, NMF on positional only; sweep reports stable atoms on real vs column-shuffled null data and median n80 (features per atom); optional `alpha_H` sparsity | `data/ideas/model.pkl` (IdeaModel), `sweep.csv`, `pop_codes.npz` |
 | `06b_check_line_ends.py [--raw]` | per atom: pending-recapture rate at line ends, material gap best vs played | stdout |
+| `07b_inspect_tactics.py` | worst peer examples per tactics category (direction × motif) + all detected motifs, to eyeball the detectors | `data/ideas/tactics_report.html` |
 | `07_inspect_ideas.py` | HTML per idea with top peer positions | `data/ideas/ideas_report.html` |
 | `08_player_report.py` | loss breakdown per track (you vs peers, bootstrap CI); per idea relative share of positional loss (removes overall-strength offset) → weaknesses / strengths; abs leak + critical miss rate; own positions + drills | `data/player/player_report.html` |
 
@@ -45,7 +47,7 @@ Engine output per position: best_move, cp_best, cp_played, alt_move/cp_alt (2nd 
 ## Status (2026-11-12)
 - Real data with tracks (NMF, K=16): 4,586 peer mistakes → positional 2,943 (64%), decided 1,312 (29%), tactical 327 (7%). Null baseline ≈ real stability at every K → switched to concept groups (tested on fake data; not yet run on real data).
 - 08 breakdown, Mack vs peers per 100 moves: blunder 1.89 vs 1.93, tactical 0.15 vs 0.18, positional 1.00 [0.89, 1.10] vs 1.23 (his whole edge), decided 0.41 vs 0.45, small inaccuracies 0.29 vs 0.29. Blunders ≈ half his total loss.
-- Plan agreed: (1) concept groups + effect-size floor [done], (2) tactical/blunder motif track, (3) transition Elo per position from base Maia-3 (Maia-2 paper's "transitional positions": Elo where the model switches to the best move = difficulty), (4) personalized fine-tune only if it beats base Maia on held-out log-likelihood, (5) SAE + NMF with null test.
+- Plan agreed: (1) concept groups + effect-size floor [done], (2) tactical/blunder motif track [done, fake data only], (3) transition Elo per position from base Maia-3 (Maia-2 paper's "transitional positions": Elo where the model switches to the best move = difficulty), (4) personalized fine-tune only if it beats base Maia on held-out log-likelihood, (5) SAE + NMF with null test.
 
 ## Status (2026-11-11, later)
 - 03 ran on real data (population 0.75 h @ 7.4 pos/s; ~34% of lines extended; 95–96% end quiet; only_move 1%). 06b on settled lines: pending recapture 0.25 → 0.09, |dmat|≥2 0.26 → 0.18. Sweep unchanged (11/15/21/41 stable at K=15/20/30/50): the linear rise is structural (correlated features + sign split), not truncation. Bishop/knight atoms now read as trade decisions (dmat small, pending at baseline).
@@ -70,7 +72,7 @@ Engine output per position: best_move, cp_best, cp_played, alt_move/cp_alt (2nd 
 - Windows gotchas already handled: spawn-safe multiprocessing (`__main__` guards, top-level workers, `mp.freeze_support()`), `pathlib` everywhere, `zstandard` package for `.zst`.
 
 ## Next steps
-1. `03 --limit 200` → `03` both sets → `05` both → `06` → `06b` (vs `06b --raw`) → `07` → `08`.
+1. On real data: `06` (concepts) → `07` → `07b` (eyeball motif detectors) → `08`.
 2. **Go/no-go**: in `ideas_report.html`, do ≥ ~1/3 of stable ideas show a recognizable shared idea in most of their top positions? Check `sweep.csv` for how stable-atom count scales with K.
 3. PVs ending mid-exchange: addressed by `03_settle_lines.py` (verify with `06b` on real data).
 4. **Maia-3 SAE features** (plan §4b). Facts checked 2026-11-09:

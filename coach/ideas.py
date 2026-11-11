@@ -87,6 +87,22 @@ def track(wp_best: np.ndarray, d: np.ndarray, names: list[str], icfg: dict) -> n
     return out
 
 
+def track_cfg(model, cfg: dict) -> dict:
+    """The routing a saved model was trained with (falls back to the config for old models)."""
+    m, i = model.meta, cfg["ideas"]
+    return {"contested": m.get("contested", i["contested"]),
+            "tactical_material": m.get("tactical_material", i["tactical_material"])}
+
+
+def move_tracks(model, cfg: dict, df, D: dict, names: list[str]) -> np.ndarray:
+    """Per move: ok / blunder / decided / tactical / positional / unusable."""
+    tr = track(df.wp_best.to_numpy(), D["dB"] - D["dP"], names, track_cfg(model, cfg))
+    out = np.where(tr == "", "unusable", tr).astype(object)
+    out[(df.label == "ok").to_numpy() | df.played_is_best.to_numpy()] = "ok"
+    out[(df.label == "blunder").to_numpy() & ~df.played_is_best.to_numpy()] = "blunder"
+    return out
+
+
 def match_atoms(A: np.ndarray, B: np.ndarray) -> np.ndarray:
     """For each row of A, cosine similarity to its Hungarian-matched row of B."""
     An = A / (np.linalg.norm(A, axis=1, keepdims=True) + 1e-12)
