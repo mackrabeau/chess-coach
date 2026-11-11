@@ -107,3 +107,44 @@ python scripts/07_inspect_ideas.py --config tests/test.yaml
 python scripts/08_player_report.py --config tests/test.yaml
 ```
 On fake games every player difference should come out "within noise".
+
+## License
+
+The code in this repository is MIT-licensed (see `LICENSE`). It does not include or
+redistribute any third-party engine or model; those keep their own licenses:
+
+- **Stockfish** (GPL-3.0) is a separate program you download yourself. The pipeline only
+  talks to it over the UCI protocol as a subprocess (via python-chess).
+- **Maia-3** (code and weights: AGPL-3.0, per the maia3 repository) is installed with pip
+  and imported by `coach/maia.py`; the weights are downloaded from Hugging Face on first
+  use. If you distribute this project together with Maia-3, or run it as a network
+  service, the AGPL's terms apply to that combined work.
+
+## Citations
+
+If you use or build on this project, please also cite the tools it depends on.
+
+**Maia-3** (human move prediction model used for the difficulty measures):
+
+```bibtex
+@inproceedings{monroe2026chessformer,
+  title     = {Chessformer: A Unified Architecture for Chess Modeling},
+  author    = {Daniel Monroe and George Eilender and Philip Chalmers and Zhenwei Tang and Ashton Anderson},
+  booktitle = {The Fourteenth International Conference on Learning Representations},
+  year      = {2026},
+  url       = {https://openreview.net/forum?id=2ltBRzEHyd}
+}
+```
+
+Code: https://github.com/CSSLab/maia3 · Weights: https://huggingface.co/UofTCSSLab
+
+**Stockfish** (engine lines and evaluations), per its `CITATION.cff`:
+
+```bibtex
+@software{stockfish,
+  author  = {{The Stockfish developers}},
+  title   = {Stockfish},
+  url     = {https://stockfishchess.org/},
+  note    = {Source: https://github.com/official-stockfish/Stockfish. GPL-3.0. Authors listed in the AUTHORS file.}
+}
+```
