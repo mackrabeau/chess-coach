@@ -83,6 +83,6 @@ deep:                    # 06c_deepen_tactics.py: blunders with no material swin
 
 maia:                    # Maia-3 (pip install git+https://github.com/CSSLab/maia3)
   model: 23m             # 5m / 23m / 79m
-  player_elo: 2125       # your strength on the Lichess scale (02b + band split: ~2100-2150; 09b fits it)
+  player_elo: 1925       # Maia-scale Elo that best predicts your moves (09b fit 1923 [1892, 1954]; games mostly at chess.com ~1790). Engine accuracy says ~2125, a different scale
   grid: [1100, 2500, 100]  # self-Elo grid for the difficulty pass (09b)
   batch: 64              # positions per forward pass on GPU (x grid size); lower if out of memory
