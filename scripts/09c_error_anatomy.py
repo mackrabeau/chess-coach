@@ -30,7 +30,10 @@ def reply_probs(maia: Maia, df, rows, elo, batch: int) -> np.ndarray:
     """Maia P(opponent's reply) from the position after the played move, at the mover's Elo."""
     torch = maia.torch
     out = np.full(len(rows), np.nan)
-    have = [k for k, (i, r) in enumerate(rows.iterrows()) if r.reply]
+    # A real reply needs a played line of >= 2 plies; missing replies can be None or NaN
+    # (and NaN is truthy), so test the type explicitly.
+    have = [k for k, i in enumerate(rows.index)
+            if isinstance(rows.reply.iat[k], str) and len(df.played_line.iat[i]) >= 2]
     for b0 in range(0, len(have), batch):
         ks = have[b0:b0 + batch]
         T, M, idx = [], [], []
