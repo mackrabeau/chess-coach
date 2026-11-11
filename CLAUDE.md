@@ -47,6 +47,13 @@ Key modules: `coach/mine.py` (position extraction, parquet schema incl. 7-ply `h
 
 Engine output per position: best_move, cp_best, cp_played, alt_move/cp_alt (2nd best), wp_*, wp_loss, label, critical, played_is_best, best_line/played_line/alt_line (UCI, length `pv_plies`=6, trimmed to even if game ends), *_complete flags. Evals from the mover's POV; each position starts with `ucinewgame` (hash cleared, order-independent).
 
+## Status (2026-11-13, Maia difficulty results)
+- Sanity check passed: peers' error rate (mistake/blunder) falls with Maia ease: 41.0% (Maia finds best 0–20%) → 34.8 → 27.2 → 15.4 → 4.1% (80–100%). Maia difficulty is meaningful on real games.
+- Best move found vs Maia-expected at own level: Mack 40.4% vs 38.3% (+2.1 [+1.2, +3.0]); peers 43.0% vs 39.6% (+3.4). Both beat Maia (it predicts the human move, not the best one); Mack slightly less so → fewer best moves but fewer errors (solid, not maximal).
+- Error rate by band, Mack vs peers: 35.3 vs 41.0, 30.5 vs 34.8, **21.0 vs 27.2 (40–60%, clear 0.77×)**, 14.4 vs 15.4, 3.6 vs 4.1. Edge is in hard/medium positions; at par in easy ones (60–100%).
+- Surprising misses (Maia at own level ≥ 50%): 0.59 vs 0.68 per 100 moves; only clear row = positional surprising misses 0.71× (strength). No specific tactical blind spot detected; blunders at peer level and spread across motifs. Lead still: let a win slip 1.62× (24 vs 15 exp).
+- Power is the limit (≈200 games ≥ 1750). Maia metrics are relative to his level at the time (rating then + 125), so older games could be added for those.
+
 ## Status (2026-11-13, Maia difficulty in 08)
 - 09b `--fit-only` on real data: **offset 125 [95, 140]** (Maia Elo = chess.com rating then + 125); latest rating ~1908 → ~2033. Set `maia.player_offset: 125`.
 - `coach/difficulty.py` (at_elo, own_elo, p_best_own) + Maia section in 08; tested on fake data only (where error rate is flat across difficulty, as expected for engine-noise games; on real games it should fall with Maia ease — a sanity check).
