@@ -1,11 +1,17 @@
 """Project your games onto the learned ideas and compare with the peer population.
 
-Two measures per idea k:
-  leak_k     = 100 / N * sum over your mistakes of share_k(x) * winprob_loss(x)
+Loss breakdown (per 100 moves): blunders, and mistakes split into the same tracks 06 uses
+(decided position / tactical / positional).
+
+Per positional idea k:
+  leak_k     = 100 / N * sum over your positional mistakes of share_k(x) * winprob_loss(x)
                (win probability lost to idea k per 100 moves; N = all your analyzed moves)
+  rel_k      = leak_k / sum_j leak_j: idea k's share of your positional losses. Comparing
+               rel_k with the peers' removes overall strength, so it shows your *profile*:
+               rel_you > rel_peers = weakness, < = strength.
   miss_k     = in *critical* positions where idea k is what separates the best move from the
                2nd best, how often you didn't play the best move (shrunk toward the peer rate)
-Ideas are ranked by leak_you - leak_peers, with a bootstrap interval over your games.
+Bootstrap intervals resample your games.
 
     python scripts/05_build_deltas.py --set player     (first)
     python scripts/08_player_report.py
@@ -25,14 +31,30 @@ import numpy as np
 import pandas as pd
 
 from coach.config import data_dir, load_config
-from coach.ideas import IdeaModel, shares
+from coach.ideas import IdeaModel, shares, track
 from coach.report import feats_html, page, position_card
 from coach.results import load_with_deltas
 
 
-def mistake_codes(model: IdeaModel, df: pd.DataFrame, D: dict):
-    """Codes for mistakes with usable lines. Returns (rows_index, W, S)."""
-    m = ((df.label == "mistake") & ~df.played_is_best).to_numpy()
+def track_cfg(model: IdeaModel, cfg: dict) -> dict:
+    """The routing the model was trained with (falls back to the config for old models)."""
+    m, i = model.meta, cfg["ideas"]
+    return {"contested": m.get("contested", i["contested"]),
+            "tactical_material": m.get("tactical_material", i["tactical_material"])}
+
+
+def tracks(model, cfg, df, D, names) -> np.ndarray:
+    """Per move: ok / blunder / decided / tactical / positional / unusable."""
+    tr = track(df.wp_best.to_numpy(), D["dB"] - D["dP"], names, track_cfg(model, cfg))
+    out = np.where(tr == "", "unusable", tr).astype(object)
+    out[(df.label == "ok").to_numpy() | df.played_is_best.to_numpy()] = "ok"
+    out[(df.label == "blunder").to_numpy() & ~df.played_is_best.to_numpy()] = "blunder"
+    return out
+
+
+def mistake_codes(model: IdeaModel, df: pd.DataFrame, D: dict, tr: np.ndarray):
+    """Codes for positional mistakes. Returns (rows_index, W, S)."""
+    m = tr == "positional"
     W, keep, _ = model.encode((D["dB"] - D["dP"])[m])
     rows = np.flatnonzero(m)[keep]
     return rows, W, shares(W)
@@ -45,24 +67,48 @@ def leak(model, df, rows, S) -> np.ndarray:
     return 100 * contrib / max(len(df), 1)
 
 
-def leak_bootstrap(model, df, rows, S, n_boot: int, seed: int = 0):
-    """Percentile interval for the player's leak, resampling whole games."""
+def game_bootstrap(df, rows, values: np.ndarray, n_boot: int, seed: int = 0) -> np.ndarray:
+    """Resample whole games. values: (len(rows), m) per-move contributions.
+    Returns (n_boot, m) of 100 * sum(values) / moves."""
     games, g_idx = np.unique(df.game_id.to_numpy(), return_inverse=True)
     n_moves = np.bincount(g_idx, minlength=len(games))
-    contrib = np.zeros((len(games), model.k))
+    contrib = np.zeros((len(games), values.shape[1]))
     if len(rows):
-        np.add.at(contrib, g_idx[rows], S * df.wp_loss.to_numpy()[rows, None])
+        np.add.at(contrib, g_idx[rows], values)
     rng = np.random.default_rng(seed)
-    boots = np.empty((n_boot, model.k))
+    boots = np.empty((n_boot, values.shape[1]))
     for b in range(n_boot):
         pick = rng.integers(0, len(games), len(games))
         boots[b] = 100 * contrib[pick].sum(0) / max(n_moves[pick].sum(), 1)
+    return boots
+
+
+def ci(boots: np.ndarray):
     return np.percentile(boots, 5, axis=0), np.percentile(boots, 95, axis=0)
 
 
-def critical_stats(model, df, D):
-    """Per idea: (n critical positions where it's dominant, misses)."""
-    m = (df.critical & np.isfinite(D["dA"]).all(1)).to_numpy()
+TRACKS = ["blunder", "tactical", "positional", "decided", "ok", "unusable"]
+TRACK_TEXT = {
+    "blunder": "blunders (> 20% win prob)",
+    "tactical": "tactical mistakes (material ends ≥ 2 apart)",
+    "positional": "positional mistakes (→ ideas below)",
+    "decided": "mistakes in already-decided positions",
+    "ok": "small inaccuracies (< 3% each)",
+    "unusable": "mistakes with unusable lines",
+}
+
+
+def breakdown(df, tr) -> np.ndarray:
+    """Win prob lost per 100 moves, per track."""
+    loss = df.wp_loss.to_numpy()
+    return np.array([100 * loss[tr == t].sum() / max(len(df), 1) for t in TRACKS])
+
+
+def critical_stats(model, cfg, df, D, names):
+    """Per idea: (n critical positions where it's dominant, misses). Only positions routed
+    'positional' when comparing the best line with the 2nd-best line."""
+    tr = track(df.wp_best.to_numpy(), D["dB"] - D["dA"], names, track_cfg(model, cfg))
+    m = df.critical.to_numpy() & (tr == "positional")
     W, keep, _ = model.encode((D["dB"] - D["dA"])[m])
     rows = np.flatnonzero(m)[keep]
     n = np.zeros(model.k, int)
@@ -93,48 +139,72 @@ def main() -> None:
     rcfg = cfg["report"]
     model = IdeaModel.load(data_dir(cfg, "ideas") / "model.pkl")
 
-    pop, Dp, _ = load_with_deltas(cfg, "population")
+    pop, Dp, names = load_with_deltas(cfg, "population")
     me, Dm, _ = load_with_deltas(cfg, "player")
-    pr, _, pS = mistake_codes(model, pop, Dp)
-    mr, mW, mS = mistake_codes(model, me, Dm)
+    tr_pop, tr_me = tracks(model, cfg, pop, Dp, names), tracks(model, cfg, me, Dm, names)
+    pr, _, pS = mistake_codes(model, pop, Dp, tr_pop)
+    mr, mW, mS = mistake_codes(model, me, Dm, tr_me)
+    B = rcfg["bootstrap"]
 
+    # Loss breakdown by track
+    bd_pop, bd_me = breakdown(pop, tr_pop), breakdown(me, tr_me)
+    onehot = np.stack([(tr_me == t) for t in TRACKS], 1) * me.wp_loss.to_numpy()[:, None]
+    bd_lo, bd_hi = ci(game_bootstrap(me, np.arange(len(me)), onehot, B))
+
+    # Per idea: absolute leak and relative share of positional losses
     leak_pop = leak(model, pop, pr, pS)
     leak_me = leak(model, me, mr, mS)
-    lo, hi = leak_bootstrap(model, me, mr, mS, rcfg["bootstrap"])
-    diff = leak_me - leak_pop
+    boots = game_bootstrap(me, mr, mS * me.wp_loss.to_numpy()[mr, None], B)
+    lo, hi = ci(boots)
+    rel_pop = leak_pop / max(leak_pop.sum(), 1e-12)
+    rel_me = leak_me / max(leak_me.sum(), 1e-12)
+    rel_lo, rel_hi = ci(boots / np.maximum(boots.sum(1, keepdims=True), 1e-12))
+    diff = rel_me - rel_pop
 
-    n_pop, miss_pop = critical_stats(model, pop, Dp)
-    n_me, miss_me = critical_stats(model, me, Dm)
+    n_pop, miss_pop = critical_stats(model, cfg, pop, Dp, names)
+    n_me, miss_me = critical_stats(model, cfg, me, Dm, names)
     rate_pop = (miss_pop + 1) / (n_pop + 2)
     s = rcfg["prior_strength"]
     rate_me = (miss_me + s * rate_pop) / (n_me + s)
 
     links = chesscom_links(cfg)
-    # Stable ideas first; within each group, biggest gap to peers first.
-    order = sorted(range(model.k), key=lambda k: (not model.is_stable(k), -diff[k]))
-    weak = [k for k in order if diff[k] > 0][: rcfg["player_top_ideas"]]
-    strong = sorted([k for k in range(model.k) if diff[k] < 0],
-                    key=lambda k: (not model.is_stable(k), diff[k]))[:3]
+    # Stable ideas only; biggest relative gap first.
+    stable = [k for k in range(model.k) if model.is_stable(k)]
+    n_show = rcfg["player_top_ideas"]
+    weak = sorted([k for k in stable if diff[k] > 0], key=lambda k: -diff[k])[:n_show]
+    strong = sorted([k for k in stable if diff[k] < 0], key=lambda k: diff[k])[:n_show]
 
     def verdict(k):
-        if lo[k] > leak_pop[k]:
+        if rel_lo[k] > rel_pop[k]:
             return "<span class='down'>clear</span>"
-        if hi[k] < leak_pop[k]:
+        if rel_hi[k] < rel_pop[k]:
             return "<span class='up'>clear</span>"
         return "<span class='muted'>within noise</span>"
 
+    def name(k):
+        return html.escape(", ".join(f"{a}{n}" for a, n, _ in model.describe(k, 2)))
+
     def stat_table(ks):
         rows = "".join(
-            f"<tr><td><a href='#idea-{k}'>Idea {k}</a>{'' if model.is_stable(k) else ' <span class=muted>(unstable)</span>'}</td>"
+            f"<tr><td><a href='#idea-{k}'>Idea {k}</a> <span class='muted'>{name(k)}</span></td>"
+            f"<td>{rel_me[k]:.0%} <span class='muted'>[{rel_lo[k]:.0%}, {rel_hi[k]:.0%}]</span></td>"
+            f"<td>{rel_pop[k]:.0%}</td><td>{verdict(k)}</td>"
             f"<td>{leak_me[k]:.2f} <span class='muted'>[{lo[k]:.2f}, {hi[k]:.2f}]</span></td>"
-            f"<td>{leak_pop[k]:.2f}</td><td>{leak_me[k] / max(leak_pop[k], 1e-9):.1f}×</td>"
-            f"<td>{verdict(k)}</td>"
+            f"<td>{leak_pop[k]:.2f}</td>"
             f"<td>{rate_me[k]:.0%} <span class='muted'>(n={n_me[k]})</span></td><td>{rate_pop[k]:.0%}</td></tr>"
             for k in ks)
-        return ("<table><tr><th>idea</th><th>your leak (90% CI)</th><th>peers</th><th>ratio</th>"
-                "<th>vs peers</th><th>your miss rate</th><th>peers</th></tr>" + rows + "</table>"
-                "<p class='muted'>“clear” = the peer value is outside your 90% interval. "
-                "“within noise” rows are leads, not conclusions.</p>")
+        return ("<table><tr><th>idea</th><th>share of your positional loss (90% CI)</th><th>peers</th>"
+                "<th>vs peers</th><th>leak / 100 moves</th><th>peers</th>"
+                "<th>critical miss rate</th><th>peers</th></tr>" + rows + "</table>")
+
+    def breakdown_table():
+        rows = "".join(
+            f"<tr><td>{TRACK_TEXT[t]}</td><td>{bd_me[i]:.2f} <span class='muted'>"
+            f"[{bd_lo[i]:.2f}, {bd_hi[i]:.2f}]</span></td><td>{bd_pop[i]:.2f}</td>"
+            f"<td>{bd_me[i] / max(bd_pop[i], 1e-9):.2f}×</td></tr>"
+            for i, t in enumerate(TRACKS))
+        return ("<table><tr><th>where the win probability goes (per 100 moves)</th>"
+                "<th>you (90% CI)</th><th>peers</th><th>ratio</th></tr>" + rows + "</table>")
 
     def idea_section(k):
         own = np.argsort(-(mW[:, k] * mS[:, k]))[: rcfg["player_examples"]]
@@ -161,19 +231,31 @@ def main() -> None:
         f"<p class='muted'>{len(me):,} of your moves ({me.game_id.nunique():,} games) compared with "
         f"{len(pop):,} peer moves (Lichess rapid ≈ {model.meta.get('rating_center')}). "
         f"Mean win-prob loss per move: you {calib[0]:.2%}, peers {calib[1]:.2%}. "
-        "Leak = win probability lost to an idea per 100 moves. These are patterns in where your "
-        "losses concentrate relative to peers, not proven causes.</p>",
-        "<h2>Where you lose more than peers</h2>", stat_table(weak) if weak else "<p>None.</p>",
-        "<h2>Where you lose less than peers</h2>", stat_table(strong) if strong else "<p>None.</p>",
+        "These are patterns in where your losses concentrate relative to peers, not proven causes.</p>",
+        "<h2>Where your losses come from</h2>", breakdown_table(),
+        "<p class='muted'>Decided = the best move's win probability was outside "
+        f"{track_cfg(model, cfg)['contested']}. Only positional mistakes feed the ideas below.</p>",
+        "<h2>Weaknesses: ideas that take a bigger share of your losses than peers'</h2>",
+        stat_table(weak) if weak else "<p>None among stable ideas.</p>",
+        "<h2>Strengths: ideas where you can trust your instincts</h2>",
+        stat_table(strong) if strong else "<p>None among stable ideas.</p>",
+        "<p class='muted'>Share = this idea's part of your positional losses, so it compares your "
+        "profile with peers' independent of overall strength. “clear” = the peer share is outside "
+        "your 90% interval; “within noise” rows are leads, not conclusions.</p>",
         *[idea_section(k) for k in weak],
     ]
     path = data_dir(cfg, "player") / "player_report.html"
     path.write_text(page("Your ideas report", "".join(body)), encoding="utf-8")
-    print(f"your mistakes encoded: {len(mr):,}; wrote {path}")
-    for k in weak:
-        d = ", ".join(f"{a}{n}" for a, n, _ in model.describe(k, 3))
-        print(f"  idea {k:2d}: leak {leak_me[k]:.2f} vs {leak_pop[k]:.2f} "
-              f"[{lo[k]:.2f}, {hi[k]:.2f}]  {d}")
+    print(f"your positional mistakes encoded: {len(mr):,}; wrote {path}")
+    print("loss per 100 moves, you vs peers:")
+    for i, t in enumerate(TRACKS):
+        print(f"  {t:10s} {bd_me[i]:5.2f} [{bd_lo[i]:.2f}, {bd_hi[i]:.2f}]  vs {bd_pop[i]:5.2f}")
+    for title, ks in (("weaknesses", weak), ("strengths", strong)):
+        print(f"{title} (share of positional loss, you vs peers):")
+        for k in ks:
+            v = "CLEAR" if (rel_lo[k] > rel_pop[k] or rel_hi[k] < rel_pop[k]) else "noise"
+            print(f"  idea {k:2d}: {rel_me[k]:.0%} [{rel_lo[k]:.0%}, {rel_hi[k]:.0%}] vs {rel_pop[k]:.0%}  "
+                  f"{v:5s}  {', '.join(f'{a}{n}' for a, n, _ in model.describe(k, 3))}")
 
 
 if __name__ == "__main__":

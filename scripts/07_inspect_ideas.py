@@ -48,8 +48,10 @@ def main() -> None:
     top_n = cfg["report"]["top_positions"]
     parts = [
         "<h1>Ideas learned from peer mistakes</h1>",
-        f"<p class='muted'>{len(sub):,} population mistakes (Lichess rapid around "
-        f"{model.meta.get('rating_center')}), K = {model.k} ideas, {n_stable} stable across "
+        f"<p class='muted'>{len(sub):,} positional population mistakes (Lichess rapid around "
+        f"{model.meta.get('rating_center')}; best-move win prob in {model.meta.get('contested')}, "
+        f"settled line ends within {model.meta.get('tactical_material')} pawns of material), "
+        f"K = {model.k} ideas, {n_stable} stable across "
         f"split halves (cos ≥ {model.stable_cos}). Each idea is a pattern in how the position at the "
         f"end of the engine's line differs from the end of the played line. ↑ = the best line "
         f"ends with more of this than the played line, ↓ = less. Green arrow = best move, red = played.</p>",

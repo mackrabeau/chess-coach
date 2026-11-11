@@ -39,6 +39,9 @@ ideas:
   min_norm: 0.5
   stable_cos: 0.7
   alpha_W: 0.0
+  alpha_H: 0.0
+  contested: [0.2, 0.8]
+  tactical_material: 2
   seed: 0
 report:
   top_positions: 10

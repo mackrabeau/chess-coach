@@ -14,6 +14,7 @@ Owner: Mack (chess.com `bananaman987654321`, rapid ~1922, 1,652 rapid games; cli
 ## Design decisions (and why)
 - **Peers come from Lichess, player games from chess.com.** chess.com has no bulk dump; Maia-3 is trained on Lichess. Peer band = Lichess rapid 2000–2200 (center 2100), a starting guess for chess.com 1922. Calibrate with `02b_engine_summary.py`: match mean win-prob loss and blunder rate, shift `population.rating_center` if off.
 - **Ideas are learned on the population, not the player.** One player has too few mistakes to discover clusters; the population gives stable atoms plus a per-idea peer baseline.
+- **Tracks before clustering** (06/08, `coach/ideas.track`): mistakes with best-move wp outside `ideas.contested` [0.2, 0.8] → *decided* (conversion/defence, later); |material gap| between settled line ends ≥ `ideas.tactical_material` (2) → *tactical* (motif track, later); rest → *positional* → NMF. Why: on settled lines, 18% of mistakes had a ≥2-pawn gap, concentrated in decided positions (44% when wp_best < 0.2, 31% when > 0.8, 8–14% in between; the logistic barely moves there).
 - **NMF on unit-normalized, sign-split deltas** (`[max(u,0), max(-u,0)]`), not k-means: positions can contain several ideas; NMF atoms read as "best line has more X / less Y". Direction = idea, norm = severity (stored separately).
 - **Split-half stability**: fit on two disjoint halves (split by game), Hungarian-match atoms by cosine; an atom is stable if cos >= 0.7 to both. Unstable atoms are shown but flagged.
 - **Win-probability loss** (Lichess logistic, `1/(1+exp(-0.00368208*cp))`), not raw cp. Labels: ok < 0.03 ≤ mistake ≤ 0.20 < blunder. Blunders are excluded from idea learning (they'd swamp every cluster); separate track later.
@@ -30,14 +31,18 @@ Owner: Mack (chess.com `bananaman987654321`, rapid ~1922, 1,652 rapid games; cli
 | `03_settle_lines.py --set ... [--limit N]` | extends best/played/alt lines 2 plies at a time (100k nodes) while the end is not quiet: in check, ≤2 legal moves, engine move is capture/promo/check, or only-move (gap ≥ 0.15 wp); cap +8 plies. Resumable. `load_analyzed` swaps these in when `quiesce.use` (raw kept in `*_line_raw`; refuses partial coverage) | `data/<set>/engine_q/part-*.parquet` |
 | `02b_engine_summary.py` | player vs peer loss profile (rating calibration) | stdout |
 | `05_build_deltas.py --set ...` | features at root + PV ends → F0, dB, dP, dA (NaN if line < 2 plies) | `data/<set>/deltas.npz` |
-| `06_learn_ideas.py` | scale by pooled Δ std, NMF sweep + stability | `data/ideas/model.pkl` (IdeaModel), `sweep.csv`, `pop_codes.npz` |
+| `06_learn_ideas.py` | routes mistakes into tracks, NMF on positional only; sweep reports stable atoms on real vs column-shuffled null data and median n80 (features per atom); optional `alpha_H` sparsity | `data/ideas/model.pkl` (IdeaModel), `sweep.csv`, `pop_codes.npz` |
 | `06b_check_line_ends.py [--raw]` | per atom: pending-recapture rate at line ends, material gap best vs played | stdout |
 | `07_inspect_ideas.py` | HTML per idea with top peer positions | `data/ideas/ideas_report.html` |
-| `08_player_report.py` | player leak / miss rates vs peers, own positions + drills | `data/player/player_report.html` |
+| `08_player_report.py` | loss breakdown per track (you vs peers, bootstrap CI); per idea relative share of positional loss (removes overall-strength offset) → weaknesses / strengths; abs leak + critical miss rate; own positions + drills | `data/player/player_report.html` |
 
 Key modules: `coach/mine.py` (position extraction, parquet schema incl. 7-ply `history_fens` for Maia), `coach/engine.py` (Analyzer, `RESULT_SCHEMA`), `coach/ideas.py` (IdeaModel, NMF, stability), `coach/results.py` (`load_analyzed`, `load_with_deltas`), `coach/report.py` (HTML/SVG boards). `pos_id = "{source}:{game_id}:{ply}"` joins everything.
 
 Engine output per position: best_move, cp_best, cp_played, alt_move/cp_alt (2nd best), wp_*, wp_loss, label, critical, played_is_best, best_line/played_line/alt_line (UCI, length `pv_plies`=6, trimmed to even if game ends), *_complete flags. Evals from the mover's POV; each position starts with `ucinewgame` (hash cleared, order-independent).
+
+## Status (2026-11-11, later)
+- 03 ran on real data (population 0.75 h @ 7.4 pos/s; ~34% of lines extended; 95–96% end quiet; only_move 1%). 06b on settled lines: pending recapture 0.25 → 0.09, |dmat|≥2 0.26 → 0.18. Sweep unchanged (11/15/21/41 stable at K=15/20/30/50): the linear rise is structural (correlated features + sign split), not truncation. Bishop/knight atoms now read as trade decisions (dmat small, pending at baseline).
+- Added track routing + null-data baseline + alpha_H (06) and relative strengths/weaknesses + loss breakdown (08). Tested on fake data only. Defaults changed: n_atoms 16, sweep [8, 12, 16, 20, 30].
 
 ## Status (2026-11-11)
 - Real data: 02 done both sets (player 5,411 @ 3.0 pos/s; population 20,120 @ 2.8 pos/s, 1M nodes). 02b: player mean wp_loss 0.037 vs peers 0.041, blunders equal (0.055), but best-move 0.404 vs 0.430 and critical-found 0.701 vs 0.734. Mixed, ~1-1.7σ: band kept at 2100. 05/06/07/08 ran.

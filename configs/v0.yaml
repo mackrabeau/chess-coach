@@ -48,11 +48,14 @@ engine:
   critical_gap: 0.10     # best move beats 2nd best by at least this much
 
 ideas:
-  n_atoms: 30            # final dictionary size
-  sweep: [15, 20, 30, 50]  # also fit these to see how many atoms are stable at each size
+  n_atoms: 16            # final dictionary size
+  sweep: [8, 12, 16, 20, 30]  # also fit these to see how many atoms are stable at each size
   min_norm: 0.5          # drop near-identical lines (scaled feature units)
   stable_cos: 0.7        # atom must reappear in both halves with cosine >= this
   alpha_W: 0.0           # extra L1 sparsity on codes (0 = plain NMF)
+  alpha_H: 0.0           # L1 on the atoms themselves: > 0 = fewer features per idea
+  contested: [0.2, 0.8]  # learn ideas only where the best move's win prob is in this range
+  tactical_material: 2   # |material gap| between settled line ends >= this -> tactical track
   seed: 0
 
 report:
