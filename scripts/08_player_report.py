@@ -156,6 +156,125 @@ def progress_section(cfg, rcfg, model, me_all, Dm_all, names, B):
             + "</tr>" + "".join(rows) + "</table>" + note), lines
 
 
+def compare_categories(me, pop, cat_me, cat_pop, cats, B, rcfg, title):
+    """Loss per 100 moves per category, you vs peers, with the usual verdict rules.
+    cat_*: category label per row ('' = not counted). Returns (html table, console lines)."""
+    min_ratio, min_exp = rcfg.get("min_ratio", 1.25), rcfg.get("min_expected", 5)
+    lm, lp = me.wp_loss.to_numpy(), pop.wp_loss.to_numpy()
+    oh = np.stack([(cat_me == c) * lm for c in cats], 1)
+    lo, hi = ci(game_bootstrap(me, np.arange(len(me)), oh, B))
+    rows, lines = [], [title + ":"]
+    for j, c in enumerate(cats):
+        v_me = 100 * lm[cat_me == c].sum() / len(me)
+        v_pop = 100 * lp[cat_pop == c].sum() / len(pop)
+        n_me, n_pop = int((cat_me == c).sum()), int((cat_pop == c).sum())
+        exp_n = n_pop * len(me) / max(len(pop), 1)
+        r = v_me / max(v_pop, 1e-9)
+        if exp_n < min_exp:
+            v = "too few"
+        elif (lo[j] > v_pop and r >= min_ratio) or (hi[j] < v_pop and r <= 1 / min_ratio):
+            v = "clear"
+        else:
+            v = "within noise"
+        cls = "muted" if v != "clear" else ("down" if r > 1 else "up")
+        rows.append(f"<tr><td>{html.escape(c)}</td><td>{v_me:.2f} <span class='muted'>[{lo[j]:.2f}, {hi[j]:.2f}]"
+                    f"</span></td><td>{v_pop:.2f}</td><td>{r:.2f}×</td><td><span class='{cls}'>{v}</span></td>"
+                    f"<td>{n_me} <span class='muted'>(exp. {exp_n:.0f})</span></td><td>{n_pop}</td></tr>")
+        lines.append(f"  {c:34s} {v_me:5.2f} [{lo[j]:.2f}, {hi[j]:.2f}] vs {v_pop:5.2f}  {r:.2f}x  {v:12s} "
+                     f"n {n_me} (exp {exp_n:.0f}) / {n_pop}")
+    table = (f"<h3>{html.escape(title)}</h3><table><tr><th></th><th>you, per 100 moves (90% CI)</th><th>peers</th>"
+             "<th>ratio</th><th>vs peers</th><th>your n</th><th>peer n</th></tr>" + "".join(rows) + "</table>")
+    return table, lines
+
+
+def anatomy_section(cfg, rcfg, pop, me, me_all, B):
+    """Error anatomy (09c): depth of the punishment, kind of reply, was it on a human's radar,
+    and (you vs yourself) think time. Returns (html, console lines)."""
+    from coach.anatomy import depth_bucket
+    paths = {n: data_dir(cfg, n) / "anatomy.parquet" for n in ("player", "population")}
+    if not all(p.exists() for p in paths.values()):
+        return ("<h2>Error anatomy</h2><p class='muted'>Run 09c_error_anatomy.py to get this section.</p>",
+                ["(anatomy skipped: run 09c)"])
+    an_me = pd.read_parquet(paths["player"]).drop_duplicates("pos_id")
+    an_pop = pd.read_parquet(paths["population"]).drop_duplicates("pos_id")
+    A_me = me[["pos_id"]].merge(an_me, on="pos_id", how="left")
+    A_pop = pop[["pos_id"]].merge(an_pop, on="pos_id", how="left")
+    html_parts, lines = ["<h2>Error anatomy: how deep was the punishment, and did a human see it coming?</h2>"], []
+
+    def cats_allowed(A, kind):
+        is_err = A.best_kind.notna().to_numpy()
+        refuted = is_err & A.refute_ply.notna().to_numpy()
+        out = np.full(len(A), "", dtype=object)
+        if kind == "depth":
+            out[is_err] = [depth_bucket(x) for x in A.refute_ply.to_numpy(float)[is_err]]
+        elif kind == "reply":
+            out[refuted] = ["punished by a " + k for k in A.reply_kind.to_numpy()[refuted]]
+        elif kind == "radar":
+            p = A.p_reply.to_numpy(float)
+            lab = np.where(p < 0.05, "reply off the radar (Maia < 5%)",
+                           np.where(p < 0.20, "reply unlikely (5-20%)", "reply expected (>= 20%)"))
+            ok = refuted & np.isfinite(p)
+            out[ok] = lab[ok]
+        elif kind == "missed":
+            g = A.gain_ply.to_numpy(float)
+            ok = is_err & np.isfinite(g)
+            out[ok] = [("missed win, " + ("1 move (ply 1)" if x <= 1 else "2 moves (ply 2-3)" if x <= 3
+                        else "deeper (ply 4+)") + ", starts with a " + k)
+                       for x, k in zip(g[ok], A.best_kind.to_numpy()[ok])]
+        return out
+
+    specs = [("depth", "Allowed: how many moves until the material went (played line)",
+              ["punished next move (ply 2)", "2-move combination (ply 3-4)", "deeper (ply 5+)", "no material swing"]),
+             ("reply", "Allowed: what kind of reply punished you", None),
+             ("radar", "Allowed: would a player at your level even consider that reply? (Maia)",
+              ["reply off the radar (Maia < 5%)", "reply unlikely (5-20%)", "reply expected (>= 20%)"]),
+             ("missed", "Missed wins: how deep, and how it starts (best line)", None)]
+    for kind, title, cats in specs:
+        cm, cp = cats_allowed(A_me, kind), cats_allowed(A_pop, kind)
+        if cats is None:
+            cats = sorted((set(cm) | set(cp)) - {""})
+        t, l = compare_categories(me, pop, cm, cp, cats, B, rcfg, title)
+        html_parts.append(t)
+        lines += l
+    html_parts.append("<p class='muted'>Errors = mistakes and blunders. Ply 1 = your move, 2 = their reply, "
+                      "and so on; a loss counts once material is ≥ 2 pawns down and stays there to the end "
+                      "of the settled line. Maia's probability of the reply is computed from the position "
+                      "after your move, at your level.</p>")
+
+    # think time, you vs yourself, whole history
+    T = me_all[["pos_id"]].merge(an_me[["pos_id", "think_s"]], on="pos_id", how="left").think_s.to_numpy(float)
+    ok = np.isfinite(T)
+    if ok.mean() > 0.5:
+        err = (me_all.label.isin(["mistake", "blunder"]) & ~me_all.played_is_best).to_numpy()
+        blu = ((me_all.label == "blunder") & ~me_all.played_is_best).to_numpy()
+        loss = me_all.wp_loss.to_numpy()
+        edges = [0, 10, 30, 90, 1e9]
+        names = ["< 10 s", "10-30 s", "30-90 s", "90 s +"]
+        rows = []
+        lines.append("think time (you, whole history):")
+        for a, b, nm in zip(edges[:-1], edges[1:], names):
+            m = ok & (T >= a) & (T < b)
+            vals = np.stack([m, m & err, m & blu], 1).astype(float)
+            bt = game_bootstrap(me_all, np.arange(len(me_all)), vals, B)
+            e_lo, e_hi = ci(bt[:, 1] / np.maximum(bt[:, 0], 1e-9))
+            b_lo, b_hi = ci(bt[:, 2] / np.maximum(bt[:, 0], 1e-9))
+            er, br = (m & err).sum() / max(m.sum(), 1), (m & blu).sum() / max(m.sum(), 1)
+            share_loss = loss[m & err].sum() / max(loss[err & ok].sum(), 1e-9)
+            rows.append(f"<tr><td>{nm}</td><td>{m.sum() / ok.sum():.0%}</td>"
+                        f"<td>{er:.1%} <span class='muted'>[{e_lo:.1%}, {e_hi:.1%}]</span></td>"
+                        f"<td>{br:.1%} <span class='muted'>[{b_lo:.1%}, {b_hi:.1%}]</span></td>"
+                        f"<td>{share_loss:.0%}</td></tr>")
+            lines.append(f"  {nm:8s} moves {m.sum() / ok.sum():4.0%}  error rate {er:5.1%} [{e_lo:.1%}, {e_hi:.1%}]  "
+                         f"blunder rate {br:5.1%} [{b_lo:.1%}, {b_hi:.1%}]  share of error loss {share_loss:4.0%}")
+        html_parts.append("<h3>Think time (you, whole history)</h3><table><tr><th>time spent on the move</th>"
+                          "<th>share of moves</th><th>error rate (90% CI)</th><th>blunder rate</th>"
+                          "<th>share of your error loss</th></tr>" + "".join(rows) + "</table>"
+                          "<p class='muted'>Fast errors suggest the move wasn't searched; slow ones suggest it "
+                          "was searched and misjudged. Peers' think times aren't available (their positions "
+                          "are sampled, so consecutive clocks are missing).</p>")
+    return "".join(html_parts), lines
+
+
 DIFF_BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0001]
 
 
@@ -504,6 +623,7 @@ def main() -> None:
 
     maia_html, maia_lines = maia_section(cfg, rcfg, pop, me, tr_pop, tr_me, tl_pop, tl_me, links, B)
     prog_html, prog_lines = progress_section(cfg, rcfg, model, me_all, Dm_all, names, B)
+    anat_html, anat_lines = anatomy_section(cfg, rcfg, pop, me, me_all, B)
     calib = (me.wp_loss.mean(), pop.wp_loss.mean())
     body = [
         "<h1>Your ideas report</h1>",
@@ -526,6 +646,7 @@ def main() -> None:
         phase_table(),
         tactic_examples(),
         maia_html,
+        anat_html,
         prog_html,
         *[idea_section(k) for k in weak],
     ]
@@ -543,6 +664,9 @@ def main() -> None:
     print("no-material blunders by phase (per 100 moves, you vs peers):")
     for i, p_ in enumerate(phases):
         print(f"  {p_:10s} {ph_me[i]:5.2f} [{ph_lo[i]:.2f}, {ph_hi[i]:.2f}] vs {ph_pop[i]:5.2f}")
+    print("error anatomy:")
+    for line in anat_lines:
+        print("  " + line)
     print("progress over time (whole history, you vs yourself):")
     for line in prog_lines:
         print("  " + line)
