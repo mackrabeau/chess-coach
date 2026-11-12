@@ -1,0 +1,64 @@
+"""Findings registry: the contract between analysis modules and the report.
+
+Each module writes data/findings/<module>.json (a list of findings) and nothing else needs to know
+about it: 20_report.py loads every file and orders them. To add an analysis, write findings here;
+don't edit the report. (This keeps parallel work on separate modules from colliding.)
+
+A finding (dict):
+  id        unique within the module                       section  opening | middlegame | endgame | exploit
+  title     short name                                     claim    one or two sentences (HTML allowed)
+  tag       solid | lead | strength | style | info | exploratory
+  elo       expected rating gain if fixed (see elo_gain), or None   elo_note  how it was computed
+  evidence  {"header": [...], "rows": [[...]]} or None
+  examples  [{"fen", "best": [uci], "played": [uci], "note"}]  (your positions; boards in the report)
+  drill     {"theme": str, "pos_ids": [player pos_ids]} or None  (puzzles; the report builds the study)
+  todo      what to do (HTML allowed)                     link     detailed report file name, or None
+"""
+from __future__ import annotations
+
+import json
+import math
+
+from .config import data_dir
+
+SECTIONS = ("opening", "middlegame", "endgame", "exploit", "games")
+# d(rating)/d(score) of the Elo logistic at a 50% score: 400 / (ln 10 * 0.25)
+ELO_PER_SCORE = 400 / (math.log(10) * 0.25)
+
+
+def elo_gain(win_prob_per_game: float) -> float:
+    """Expected score gained per game (win-prob points, 0..1) -> rating points at an even score.
+    Win-prob loss is a reasonable proxy for expected score (it is fitted on game outcomes)."""
+    return ELO_PER_SCORE * max(0.0, float(win_prob_per_game))
+
+
+def finding(id, section, title, claim, tag, elo=None, elo_note="", evidence=None, examples=None,
+            drill=None, todo="", link=None) -> dict:
+    assert section in SECTIONS, section
+    return {"id": str(id), "section": section, "title": title, "claim": claim, "tag": tag,
+            "elo": None if elo is None or elo != elo else round(float(elo), 1), "elo_note": elo_note,
+            "evidence": evidence, "examples": examples or [], "drill": drill, "todo": todo, "link": link}
+
+
+def example(fen, best, played=None, note="", pos_id=None) -> dict:
+    as_list = lambda x: [] if x is None else [str(u) for u in list(x)]
+    return {"fen": fen, "best": as_list(best), "played": as_list(played), "note": note, "pos_id": pos_id}
+
+
+def write(cfg, module: str, items: list[dict]) -> None:
+    d = data_dir(cfg, "findings")
+    for f in items:
+        f["module"] = module
+    tmp = d / f"{module}.json.tmp"
+    tmp.write_text(json.dumps(items, indent=1, default=float), encoding="utf-8")
+    tmp.replace(d / f"{module}.json")
+
+
+def load_all(cfg) -> list[dict]:
+    out = []
+    for p in sorted(data_dir(cfg, "findings").glob("*.json")):
+        try:
+            out += json.loads(p.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            print(f"  skipping unreadable findings file {p.name}")
+    return out

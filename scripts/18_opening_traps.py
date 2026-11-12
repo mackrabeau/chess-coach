@@ -41,6 +41,7 @@ import pandas as pd
 from coach.config import data_dir, load_config, resolve
 from coach.difficulty import player_maia_elo
 from coach.engine import Analyzer
+from coach.findings import elo_gain, example, finding, write as write_findings
 from coach.maia import Maia, maia_lists
 from coach.openings import band_labels, opening_engine, player_tree
 from coach.report import page, position_card
@@ -251,6 +252,24 @@ def main() -> None:
              "<p class='muted'>Red = trap move, green = Stockfish's. 'they play' = the opponents' most damaging likely "
              "reply and how often; book = real Lichess games at their level, Maia = model for rarer lines.</p>",
              f"<div class='grid'>{''.join(cards)}</div>"]
+    # findings for the report (exploratory)
+    n_games = recent.game_id.nunique()
+    fi = []
+    if len(A):
+        for r in A.sort_values("value", ascending=False).head(8).itertuples():
+            fi.append(finding(f"steer:{r.epd}", "exploit", f"Opponents go wrong: {r.path}",
+                              f"{r.err_mass:.0%} of {opp_band} players go wrong here (book n {r.book_n}); the most common "
+                              f"error is {san(r.fen, r.trap)} ({r.trap_p:.0%}). Know the punishment.", "exploratory",
+                              elo_gain(r.exp_loss * r.visits / max(n_games, 1)), "expected opponent loss × visits per game",
+                              examples=[example(r.fen, [r.best], [r.trap], r.path)], link="opening_traps.html"))
+    if len(Bt):
+        for r in Bt.sort_values("value", ascending=False).head(8).itertuples():
+            fi.append(finding(f"trap:{r.epd}", "exploit", f"Trap move: {r.path}",
+                              f"{san(r.fen, r.move)} instead of {san(r.fen, r.sf_move)}: +{100 * r.gain:.1f} expected, "
+                              f"cost {100 * r.cost:.1f} ({r.src}).", "exploratory",
+                              elo_gain(r.gain * r.visits / max(n_games, 1)), "expected gain × visits per game",
+                              examples=[example(r.fen, [r.move], [r.sf_move], r.path)], link="opening_traps.html"))
+    write_findings(cfg, "traps", fi)
     print("\n".join(L))
     path = data_dir(cfg, "player") / "opening_traps.html"
     path.write_text(page("Opening traps", "".join(body)), encoding="utf-8")

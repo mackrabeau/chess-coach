@@ -18,7 +18,11 @@ Deeper results land in data/<set>/engine_L<k>/ and replace the shallower ones wh
     python refine.py                     # run until --max-level is exhausted (or forever with a big one)
     python refine.py --hours 8           # stop starting new work after 8 hours
     python refine.py --status            # what's done, what's next
-    python refine.py --update-reports    # run main.py after each finished level
+    python refine.py --no-update         # skip fetching new games / rebuilding (deepen only)
+
+Every run first does `main.py --update`: fetches your newest chess.com games, analyses them, and
+rebuilds whatever is stale (findings, report). It does that again every --update-every hours (default
+6) between tasks and after each finished level, so a runner left on for days keeps the report current.
 """
 from __future__ import annotations
 
@@ -102,7 +106,8 @@ def main() -> None:
     ap.add_argument("--max-level", type=int, default=3)
     ap.add_argument("--workers", type=int, default=None)
     ap.add_argument("--status", action="store_true")
-    ap.add_argument("--update-reports", action="store_true")
+    ap.add_argument("--no-update", action="store_true", help="don't fetch new games / rebuild stale stages")
+    ap.add_argument("--update-every", type=float, default=6.0, help="hours between update passes")
     args = ap.parse_args()
     CONFIG = args.config
     cfg = load_config(CONFIG)
@@ -110,14 +115,25 @@ def main() -> None:
     state = json.loads(state_path.read_text()) if state_path.exists() else {"done": []}
     deadline = time.time() + 3600 * args.hours if args.hours else None
     plan = [(k, name, fn) for k in range(1, args.max_level + 1) for name, fn in tasks(cfg, k, args.workers)]
+    last_update = [0.0]
+
+    def update(force=False):
+        """New games from chess.com + every stale stage (findings, report) via main.py."""
+        if args.no_update or (not force and time.time() - last_update[0] < 3600 * args.update_every):
+            return
+        print("\n== update: new games + stale stages (main.py --update)", flush=True)
+        subprocess.run([sys.executable, str(ROOT / "main.py"), "--config", CONFIG, "--update", "--keep-going"], cwd=ROOT)
+        last_update[0] = time.time()
 
     if args.status:
         for k, name, _ in plan:
             print(f"  [{'x' if name in state['done'] else ' '}] {name}")
         return
+    update(force=True)
     for k, name, fn in plan:
         if name in state["done"]:
             continue
+        update()
         if deadline is not None and time.time() > deadline:
             print("time budget used; rerun to continue")
             return
@@ -130,9 +146,8 @@ def main() -> None:
         tmp = state_path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(state, indent=1))
         tmp.replace(state_path)
-        last_of_level = name == [n for kk, n, _ in plan if kk == k][-1]
-        if args.update_reports and last_of_level:
-            subprocess.run([sys.executable, str(ROOT / "main.py"), "--config", CONFIG, "--offline"], cwd=ROOT)
+        if name == [n for kk, n, _ in plan if kk == k][-1]:
+            update(force=True)                     # a level finished: rebuild findings + report
     print("all planned levels done; raise --max-level to keep going")
 
 

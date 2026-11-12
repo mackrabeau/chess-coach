@@ -193,7 +193,8 @@ def analyse(cfg, mb):
             you_txt = f"{scale * me_point[j]:5.2f}" if scale == 100 else f"{me_point[j]:5.1%}"
             rec = {"metric": metric, "category": name, "slope_per_100": 1e4 * s, "slope_lo": 1e4 * s_lo,
                    "slope_hi": 1e4 * s_hi, "skill": skill, "you": me_point[j], "level": np.nan,
-                   "level_lo": np.nan, "level_hi": np.nan, **{f"band_{i}": v for i, v in enumerate(point[:, j])}}
+                   "level_lo": np.nan, "level_hi": np.nan, **{f"band_{i}": v for i, v in enumerate(point[:, j])},
+                   **{f"rating_{i}": float(r) for i, r in enumerate(ratings)}}
             lv_txt = "flat across ratings: style, no level"
             if skill:
                 lv = 2100 + (me_point[j] - a) / s

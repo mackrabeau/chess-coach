@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np
 import pandas as pd
 
+from coach.findings import elo_gain, finding, write as write_findings
 from coach.config import data_dir, load_config
 from coach.difficulty import p_best_own, player_maia_elo
 from coach.ideas import IdeaModel, move_tracks, shares, track, track_cfg
@@ -137,6 +138,9 @@ def progress_section(cfg, rcfg, model, me_all, Dm_all, names, B):
             + "</tr>" + "".join(rows) + "</table>" + note), lines
 
 
+_FINDINGS: list = []      # clear weaknesses for the report (coach/findings.py), filled as tables are built
+
+
 def compare_categories(me, pop, cat_me, cat_pop, cats, B, rcfg, title):
     """Loss per 100 moves per category, you vs peers, with the usual verdict rules.
     cat_*: category label per row ('' = not counted). Returns (html table, console lines)."""
@@ -158,6 +162,12 @@ def compare_categories(me, pop, cat_me, cat_pop, cats, B, rcfg, title):
         else:
             v = "within noise"
         cls = "muted" if v != "clear" else ("down" if r > 1 else "up")
+        if v == "clear" and r > 1:
+            mpg = len(me) / max(me.game_id.nunique(), 1)
+            _FINDINGS.append(finding(f"anatomy:{title}:{c}", "middlegame", f"{title}: {c}",
+                                     f"{v_me:.2f} win-prob points lost per 100 moves vs {v_pop:.2f} for peers ({r:.2f}×).",
+                                     "solid", elo_gain((v_me - v_pop) / 100 * mpg), "extra loss per move × moves per game",
+                                     link="player_report.html"))
         rows.append(f"<tr><td>{html.escape(c)}</td><td>{v_me:.2f} <span class='muted'>[{lo[j]:.2f}, {hi[j]:.2f}]"
                     f"</span></td><td>{v_pop:.2f}</td><td>{r:.2f}×</td><td><span class='{cls}'>{v}</span></td>"
                     f"<td>{n_me} <span class='muted'>(exp. {exp_n:.0f})</span></td><td>{n_pop}</td></tr>")
@@ -637,6 +647,15 @@ def main() -> None:
     print("loss per 100 moves, you vs peers:")
     for i, t in enumerate(TRACKS):
         print(f"  {t:10s} {bd_me[i]:5.2f} [{bd_lo[i]:.2f}, {bd_hi[i]:.2f}]  vs {bd_pop[i]:5.2f}")
+    mpg = len(me) / max(me.game_id.nunique(), 1)
+    for j in shown:
+        if "clear" in tactic_verdict(j) and t_ratio[j] > 1:
+            _FINDINGS.append(finding(f"tactic:{cats[j]}", "middlegame", f"Tactics: {cats[j]}",
+                                     f"{t_me[j]:.2f} win-prob points lost per 100 moves vs {t_pop[j]:.2f} for peers "
+                                     f"({t_ratio[j]:.2f}×).", "solid", elo_gain((t_me[j] - t_pop[j]) / 100 * mpg),
+                                     "extra loss per move × moves per game", todo="See the tactics examples in the "
+                                     "detailed report.", link="player_report.html"))
+    write_findings(cfg, "tactics", _FINDINGS)
     print("tactics (loss per 100 moves, you vs peers; peer n >= %d):" % min_n)
     for j in shown:
         v = "CLEAR" if "clear" in tactic_verdict(j) else "few" if "too few" in tactic_verdict(j) else "noise"
