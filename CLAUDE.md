@@ -36,6 +36,7 @@ Shared code: `coach/runner.py`, `results.py` (load_analyzed), `categories.py`, `
 
 ## Open / next
 - Mack to run on real data: `python main.py` (new: 17 multi-band = mining + ~1.5 h Stockfish, 18 traps at 1M/300k nodes), then refine. Exploratory defaults deepened: 13 tree nodes 300k (was 100k), 18 nodes_root 1M / nodes_reply 300k. 13 only reruns with `--force practical-tree` (~1.5 h).
+- **Remind Mack**: once main.py is shown working on his machine (he pastes the output), implement the repertoire extension ("your lines, extended", design in `docs/future_work.md`), together with the report generator / Lichess study export.
 - Report generator: waiting on Mack's answers to the 3 questions in `docs/report_design.md` (recommendation: one static HTML organized Analysis/Exploitation/Drills + Lichess study PGN files).
 - Parked ideas: `docs/future_work.md` (time management model and clean-endgame plan execution are next candidates).
 
