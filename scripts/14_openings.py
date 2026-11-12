@@ -197,11 +197,17 @@ def main() -> None:
 
     print("2. population book from the Lichess dump")
     bp, pp = out / "book.parquet", out / "peer_out.parquet"
-    if args.rebuild or not bp.exists():
-        book_df, peers = population_book(cfg, oc, set(tree.epd))
-        book_df.to_parquet(bp, index=False)
-        peers.to_parquet(pp, index=False)
-    book_df, peers = pd.read_parquet(bp), pd.read_parquet(pp)
+    if not oc.get("book", True) and not bp.exists():
+        # quick mode (openings.book: false): no dump pass; no peer book / out-of-opening baseline
+        print("   skipped (openings.book: false)")
+        book_df = pd.DataFrame(columns=["epd", "move", "band", "n", "score"])
+        peers = pd.DataFrame(columns=["color", "fen", "result", "elo"])
+    else:
+        if args.rebuild or not bp.exists():
+            book_df, peers = population_book(cfg, oc, set(tree.epd))
+            book_df.to_parquet(bp, index=False)
+            peers.to_parquet(pp, index=False)
+        book_df, peers = pd.read_parquet(bp), pd.read_parquet(pp)
     book = {k: g[["move", "n", "score"]] for k, g in book_df.groupby(["epd", "band"])}
 
     print("3. Stockfish")
