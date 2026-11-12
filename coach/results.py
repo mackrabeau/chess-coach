@@ -7,7 +7,7 @@ from .config import data_dir
 from .engine import LINES
 from .parts import read_parts
 
-FILES = {"population": "positions_engine.parquet", "player": "positions.parquet"}
+from .runner import position_file
 
 
 def load_analyzed(cfg: dict, which: str, drop_errors: bool = True,
@@ -18,7 +18,7 @@ def load_analyzed(cfg: dict, which: str, drop_errors: bool = True,
     alt_line are replaced by the settled (extended) lines; the 02 originals stay in
     *_line_raw. raw_lines=True skips this.
     """
-    pos = pd.read_parquet(data_dir(cfg, which) / FILES[which])
+    pos = pd.read_parquet(data_dir(cfg, which) / position_file(which))
     eng = read_parts(data_dir(cfg, which, "engine"))
     if eng is None:
         raise FileNotFoundError(f"no engine results for '{which}' yet; run 02_engine_lines.py")
