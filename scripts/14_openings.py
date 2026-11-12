@@ -31,7 +31,6 @@ net-lose points vs your opponents.
 from __future__ import annotations
 
 import argparse
-import json
 import multiprocessing as mp
 import sys
 import time
@@ -43,22 +42,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import chess
 import numpy as np
 import pandas as pd
-import pyarrow as pa
 
 from coach.config import data_dir, load_config, resolve
-from coach.engine import Analyzer
 from coach.mine import is_rapid, mover_score
-from coach.openings import band_labels, engine_dir_name, opening_engine, player_tree, san_tokens
-from coach.parts import done_ids, next_part_index, write_part
+from coach.openings import band_labels, evaluate, player_tree, san_tokens
 from coach.pgn_stream import iter_raw_games
 from coach.report import page, position_card
 
 OPEN = {"max_ply": 30, "min_count": 3, "min_visits": 2, "flag": 0.05, "dump_games": 2_000_000, "bands": [1600, 1800, 2000, 2200, 2400, 4000],
         "nodes": 300000, "multipv": 3, "peer_sample": 3000, "out_ply": 20, "leave_k": 4, "pop_share": 0.05,
         "good": 0.03, "bad": 0.08, "critical_gap": 0.10}
-ENGINE_SCHEMA = pa.schema([("pos_id", pa.string()), ("fen", pa.string()), ("best", pa.string()),
-                           ("values", pa.string())])
-
 # ---------------------------------------------------------------- stage 2
 def population_book(cfg, oc, epds: set):
     fcfg, pop = cfg["filters"], cfg["population"]
@@ -126,44 +119,8 @@ def population_book(cfg, oc, epds: set):
 
 
 # ---------------------------------------------------------------- stage 3
-_an = None
-_oc = {}
-
-
-def _init(ecfg, sf, oc):
-    global _an, _oc
-    _an, _oc = Analyzer(ecfg, sf), oc
-
-
-def _eval(item):
-    pid, fen, moves, mpv = item
-    try:
-        best, vals = _an.move_values(fen, moves, _oc["nodes"], mpv)
-        return {"pos_id": pid, "fen": fen, "best": best, "values": json.dumps(vals)}
-    except Exception as e:
-        print(f"  engine failed on {pid}: {e}", flush=True)
-        return None
-
-
 def run_engine(cfg, oc, items, workers):
-    part_dir = data_dir(cfg, "openings", engine_dir_name(oc["nodes"]))
-    (part_dir / "nodes.txt").write_text(str(oc["nodes"]))
-    done = done_ids(part_dir)
-    todo = [it for it in items if it[0] not in done]
-    print(f"  engine: {len(items) - len(todo):,} done, {len(todo):,} to go")
-    if todo:
-        sf = str(resolve(cfg, cfg["paths"]["stockfish"]))
-        idx, buf, t0 = next_part_index(part_dir), [], time.time()
-        with mp.Pool(workers, initializer=_init, initargs=(dict(cfg["engine"]), sf, oc)) as pool:
-            for i, r in enumerate(pool.imap_unordered(_eval, todo, chunksize=4), 1):
-                if r:
-                    buf.append(r)
-                if len(buf) >= 200 or i == len(todo):
-                    write_part(part_dir, idx, buf, ENGINE_SCHEMA)
-                    idx, buf = idx + 1, []
-                    el = time.time() - t0
-                    print(f"    {i:,}/{len(todo):,}  ETA {el / i * (len(todo) - i) / 60:.0f} min", flush=True)
-    return opening_engine(cfg)      # deepest search per position, across all node counts
+    return evaluate(cfg, items, oc["nodes"], workers)   # deepest result per position, all node counts
 
 
 # ---------------------------------------------------------------- analysis helpers

@@ -62,6 +62,15 @@ Ideas worth exploring that aren't built yet, roughly grouped. Each: what, why, h
 - **Grow the peer set** in refine.py (population positions beyond 20k; needs 02 + 03 on the new ones,
   since load_analyzed refuses partial settled coverage).
 
+### Single-game analysis tab (Mack, 2026-11-18) — status: idea
+- Upload one game (PGN) → run the pipeline on just that game → a report tab tailored to it: game
+  rating + per-phase ratings (red → green, as chess.com), best moves / mistakes / blunders, opening ideas
+  (vs the repertoire), tactics, endgame ideas, the idea concepts — and how this game compares with the
+  rest of his games (percentiles per measure). Needs: a single-game path through 02/03/05/09b (engine
+  at depth, Maia), the per-game rating (quantile mapping onto the band per-game distributions), and
+  the report generator (option A HTML) to render one game. A local web app (option B) would make the
+  upload step natural; with option A it's a command (`python analyse_game.py game.pgn`) that writes the tab.
+
 ## Layer 2: exploitation (exploratory)
 
 - **Safety budget over a whole game** (Ganzfried & Sandholm: only risk what the opponent has gifted):
