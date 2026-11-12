@@ -6,7 +6,8 @@ are skipped.
 
     python scripts/01b_fetch_results.py --config configs/v0.yaml
 
-Output: data/population/results.parquet (game_id, white_score: 1 / 0.5 / 0)
+Output: data/population/results.parquet (game_id, white_score: 1 / 0.5 / 0, status: mate / resign /
+outoftime / draw / stalemate / ...)
 """
 from __future__ import annotations
 
@@ -40,7 +41,7 @@ def white_score(game: dict) -> float | None:
     return 0.5   # finished without a winner: draw, stalemate, ...
 
 
-def fetch_batch(ids: list[str], session) -> dict[str, float]:
+def fetch_batch(ids: list[str], session) -> dict[str, tuple[float, str]]:
     while True:
         r = session.post(URL, data=",".join(ids), headers=HEADERS,
                          params={"moves": "false", "clocks": "false", "evals": "false",
@@ -56,7 +57,7 @@ def fetch_batch(ids: list[str], session) -> dict[str, float]:
                 g = json.loads(line)
                 s = white_score(g)
                 if s is not None:
-                    out[g["id"]] = s
+                    out[g["id"]] = (s, g.get("status", ""))   # status: mate, resign, outoftime, draw, ...
         return out
 
 
@@ -68,7 +69,10 @@ def main() -> None:
     d = data_dir(cfg, "population")
     ids = pd.read_parquet(d / "positions_engine.parquet", columns=["game_id"]).game_id.unique().tolist()
     path = d / "results.parquet"
-    have = pd.read_parquet(path) if path.exists() else pd.DataFrame(columns=["game_id", "white_score"])
+    have = pd.read_parquet(path) if path.exists() else pd.DataFrame(columns=["game_id", "white_score", "status"])
+    if "status" not in have.columns:
+        print("results on file have no game status (needed for time losses): fetching everything again")
+        have = pd.DataFrame(columns=["game_id", "white_score", "status"])
     have_ids = set(have.game_id)
     todo = [g for g in ids if g not in have_ids]
     print(f"{len(ids):,} peer games, {len(have):,} results on file, {len(todo):,} to fetch")
@@ -78,7 +82,8 @@ def main() -> None:
             batch = todo[i:i + 300]
             got = fetch_batch(batch, s)
             # ids without a result (aborted, deleted) are stored as NaN so re-runs skip them
-            rows += [{"game_id": k, "white_score": got.get(k, float("nan"))} for k in batch]
+            rows += [{"game_id": k, "white_score": got.get(k, (float("nan"), ""))[0],
+                      "status": got.get(k, (float("nan"), ""))[1]} for k in batch]
             pd.DataFrame(rows).to_parquet(path, index=False)   # save after every batch
             print(f"  {min(i + 300, len(todo)):,}/{len(todo):,} requested, {len(got)} results", flush=True)
             time.sleep(1)
