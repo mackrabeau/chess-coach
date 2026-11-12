@@ -243,12 +243,12 @@ def main() -> None:
         Bt["value"] = Bt.visits * Bt.gain
         for r in Bt.sort_values("value", ascending=False).head(12).itertuples():
             L.append(f"   {r.path} [{san(r.fen, r.move)} instead of {san(r.fen, r.sf_move)}]: expected +{100 * r.gain:.1f}, "
-                     f"cost {100 * r.cost:.1f}; bait {san(r.fen_after, r.bait) if r.bait else '-'} "
+                     f"cost {100 * r.cost:.1f}; bait {san(r.fen_after, r.bait) if isinstance(r.bait, str) else '-'} "
                      f"({r.bait_p:.0%}, {r.src}); you reached it {r.visits}x")
             cards.append(card(r.fen, r.move, r.sf_move, r.cost,
                               f"{r.path} · trap {san(r.fen, r.move)} (red) vs Stockfish {san(r.fen, r.sf_move)} (green) · "
                               f"expected +{100 * r.gain:.1f}, cost {100 * r.cost:.1f} · they play "
-                              f"{san(r.fen_after, r.bait) if r.bait else '-'} {r.bait_p:.0%} ({r.src})"))
+                              f"{san(r.fen_after, r.bait) if isinstance(r.bait, str) else '-'} {r.bait_p:.0%} ({r.src})"))
     body += ["<h2>B. Trap moves you could play</h2>",
              "<p class='muted'>Red = trap move, green = Stockfish's. 'they play' = the opponents' most damaging likely "
              "reply and how often; book = real Lichess games at their level, Maia = model for rarer lines.</p>",
