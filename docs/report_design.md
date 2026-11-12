@@ -58,7 +58,7 @@ Appendix           (method notes, every table in full)
 - Grouped by finding (e.g. "pressing, forcing move, < 3 min"). Each group holds at most 15, chosen for variety (different openings/structures), with recent games first.
 - Exploitation section: a few illustrative positions, not drills.
 
-## Decisions (Mack, 2026-11-18)
+## Decisions (2026-11-18)
 
 1. **Format**: whatever looks and feels best; open to an interactive website (feasibility discussed:
    v1 = one self-contained HTML with inline JS (tabs, collapsible findings, boards you can step through,

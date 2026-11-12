@@ -6,3 +6,6 @@ tests/data/
 /stockfish
 tests/local.yaml
 tests/someone.yaml
+configs/local/
+CLAUDE.local.md
+docs/local/

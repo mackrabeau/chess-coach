@@ -1,6 +1,6 @@
 """Import games from PGN (over-the-board classical, 30+30, any other source) and analyse each one.
 
-    python scripts/22_import_games.py --config configs/v0.yaml --pgn my_otb_games.pgn --name "Rabeau"
+    python scripts/22_import_games.py --config configs/v0.yaml --pgn my_otb_games.pgn --name "Your Name"
     python scripts/22_import_games.py --config configs/v0.yaml            # re-analyse what's imported
 
 --name: text that identifies you in the White/Black tags (case-insensitive; several allowed). Games

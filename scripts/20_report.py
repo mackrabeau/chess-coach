@@ -25,7 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import chess
 import pandas as pd
 
-from coach.config import data_dir, load_config
+from coach.config import data_dir, data_root, load_config
+from coach.hub import build_index, files_section, rel
 from coach.findings import ELO_PER_SCORE, load_all
 from coach.results import load_analyzed
 from coach.study import puzzle_chapter, write_studies
@@ -66,7 +67,7 @@ def main() -> None:
     pids = {e.get("pos_id") for f in F for e in f["examples"]} | \
            {p for f in F if f.get("drill") for p in f["drill"].get("pos_ids", [])}
     why = why_texts(cfg, "player", [p for p in pids if p])
-    rep = Report(f"Chess report · {cfg['player']['username']}")
+    rep = Report(f"Chess report · {cfg['player']['username']}", home=rel(data_root(cfg) / "index.html", P))
 
     def examples(f):
         out = []
@@ -186,11 +187,18 @@ def main() -> None:
              "<b>info</b>: context. <b>exploratory</b>: opponent models.</li>"
              f"<li><b>≈ +N Elo</b>: expected score gained per game if fixed × {ELO_PER_SCORE:.0f} (rating points per "
              "point of score at an even score). Win-probability loss stands in for score.</li></ul>")
-    det = sorted(p.name for p in P.glob("*.html") if p.name != "report.html")
-    M.append("<h3>Detailed reports</h3><ul>" + "".join(f"<li><a href='{esc(n)}'>{esc(n)}</a></li>" for n in det) + "</ul>")
     M.append(f"<p class='muted'>Generated {time.strftime('%Y-%m-%d %H:%M')} from {len(F)} findings.</p>")
+    Fi = rep.tab("files", "Files")
+    me_name = cfg["player"]["username"].lower()
+    comps = [c for c in sorted((data_root(cfg) / "compare").glob("*/report.html")) if me_name in c.parent.name.split("_vs_")]
+    if comps:
+        Fi.append("<h2>Head-to-head</h2><ul>" + "".join(
+            f"<li><a href='{esc(rel(c, P))}'>{esc(c.parent.name.replace('_vs_', ' vs '))}</a></li>" for c in comps) + "</ul>")
+    Fi.append(files_section(P, sorted(p for p in P.glob("*.html") if p.name != "report.html")
+                            + sorted(data_dir(cfg, "ideas").glob("*.html")), sorted(P.glob("*.pgn"))))
     out = P / "report.html"
     rep.write(out)
+    print(f"index: {build_index(cfg)}")
     print(f"{len(F)} findings ({len(weak_all)} weaknesses), {len(drill_files)} drill themes, {len(rep.examples)} boards")
     for f in weak_all[:8]:
         print(f"   {f['section']:10s} {f.get('elo') or 0:6.1f} Elo  {f['title']}")

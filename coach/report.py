@@ -59,11 +59,14 @@ document.querySelectorAll('.card.has-ends').forEach(function (c) {
 """
 
 
-def page(title: str, body: str) -> str:
+def page(title: str, body: str, back: str | None = "report.html") -> str:
+    """Detailed per-module page. back: link to the main report (pages live next to it by default)."""
+    nav = (f"<p class='muted'><a href='{html.escape(back)}'>← main report</a> · "
+           f"<a href='../../../index.html'>all players &amp; comparisons</a></p>" if back else "")
     return (f"<!doctype html><html lang='en'><head><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
             f"<title>{html.escape(title)}</title><style>{CSS}</style></head>"
-            f"<body><main>{body}</main><script>{JS}</script></body></html>")
+            f"<body><main>{nav}{body}</main><script>{JS}</script></body></html>")
 
 
 def feats_html(desc) -> str:

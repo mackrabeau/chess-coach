@@ -3,7 +3,7 @@ paths:
   stockfish: C:/tools/stockfish/stockfish-windows-x86-64-avx2.exe
   lichess_dump: tests/data/raw/fake.pgn.zst
 player:
-  username: bananaman987654321
+  username: test_player
   time_class: rapid
   rated_only: true
   min_player_rating: 1750

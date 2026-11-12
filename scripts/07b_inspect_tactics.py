@@ -68,7 +68,7 @@ def main() -> None:
         parts.append(f"<h2 id='c{i}'>{html.escape(c)} <span class='muted'>({n})</span></h2>"
                      f"<div class='grid'>{cards}</div>")
     path = data_dir(cfg, "ideas") / "tactics_report.html"
-    path.write_text(page("Tactics report", "".join(parts)), encoding="utf-8")
+    path.write_text(page("Tactics report", "".join(parts), back=None), encoding="utf-8")
     print(f"{len(tl):,} peer blunders + tactical mistakes ({tl.deep.sum():,} classified via deep lines); categories:")
     for c, n in counts.items():
         print(f"  {c:34s} {n:5d}  ({n / len(tl):.0%})")

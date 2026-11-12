@@ -1,7 +1,7 @@
 """Head-to-head report: you vs one other player. Separate from main.py (which compares you with the
 population); run it once both players have been through the pipeline:
 
-    python scripts/23_compare_players.py --config configs/v0.yaml --other configs/fawzx.yaml
+    python scripts/23_compare_players.py --config configs/local/me.yaml --other configs/local/friend.yaml
 
 Output: data/compare/<you>_vs_<them>/report.html (+ prep_<a>_to_<b>.pgn Lichess studies)
 
@@ -35,6 +35,7 @@ import pandas as pd
 from coach.config import data_dir, data_root, load_config, scope_path
 from coach.fetch_chesscom import iter_player_games
 from coach.findings import load_all
+from coach.hub import build_index, files_section, rel
 from coach.openings import opening_engine, player_tree
 from coach.study import chapter, write_studies
 from coach.webreport import Report, esc
@@ -206,7 +207,7 @@ def main() -> None:
     out = data_root(cfgA) / "compare" / f"{A.name.lower()}_vs_{B.name.lower()}"
     out.mkdir(parents=True, exist_ok=True)
     E = {**opening_engine(cfgB), **opening_engine(cfgA)}
-    rep = Report(f"{A.name} vs {B.name}")
+    rep = Report(f"{A.name} vs {B.name}", home=rel(data_root(cfgA) / "index.html", out))
 
     O = rep.tab("overview", "Overview")
     h2h = head_to_head(A, B)
@@ -243,7 +244,13 @@ def main() -> None:
              f"went wrong and at least half of their last {cc['recent_k']} visits did; their recent repertoire uses the "
              f"last {cc['recent_months']} months (at least {cc['recent_min_games']} games). Levels: 17's band fits, "
              "computed for each player on the same rating bands. Engine values: both players' opening caches.</p>")
+    Fi = rep.tab("files", "Files")
+    Fi.append("<h2>Each player's report</h2><ul>" + "".join(
+        f"<li><a href='{esc(rel(data_dir(c, 'player') / 'report.html', out))}'>{esc(c['player']['username'])}</a></li>"
+        for c in (cfgA, cfgB)) + "</ul>")
+    Fi.append(files_section(out, [], sorted(out.glob("*.pgn"))))
     rep.write(out / "report.html")
+    build_index(cfgA)
     print(f"{A.name} → {B.name}: {n['ab']} exploitable positions; {B.name} → {A.name}: {n['ba']}; "
           f"head-to-head games: {len(h2h)}; wrote {out / 'report.html'}")
 
