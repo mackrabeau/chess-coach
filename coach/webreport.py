@@ -42,8 +42,9 @@ def line_data(fen: str, ucis) -> dict:
 class Report:
     """Collects tabs, sections and the example/puzzle data, then writes one HTML file."""
 
-    def __init__(self, title: str):
+    def __init__(self, title: str, home: str | None = None):
         self.title = title
+        self.home = home                         # relative link to data/index.html
         self.tabs: list[tuple[str, str, list[str]]] = []   # (id, label, html parts)
         self.examples: list[dict] = []
 
@@ -103,7 +104,9 @@ class Report:
                 f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
                 f"<title>{esc(self.title)}</title><style>{CSS}</style></head><body>"
                 f"<svg width='0' height='0' style='position:absolute'><defs>{pieces}</defs></svg>"
-                f"<header><h1>{esc(self.title)}</h1><nav>{nav}</nav></header><main>{panes}</main>"
+                f"<header><h1>{esc(self.title)}"
+                + (f" <a class='home' href='{esc(self.home)}'>all players &amp; comparisons</a>" if self.home else "")
+                + f"</h1><nav>{nav}</nav></header><main>{panes}</main>"
                 f"<script>const EX={data};{JS}</script></body></html>")
 
     def write(self, path) -> None:
@@ -125,6 +128,9 @@ main{max-width:1100px;margin:0 auto;padding:16px}.pane{display:none}.pane.on{dis
 h2{font-size:18px;margin:22px 0 8px}h3{font-size:16px;margin:16px 0 6px}
 .muted{color:var(--muted)}.finding{background:var(--card);border:1px solid var(--line);border-radius:10px;
 padding:10px 14px;margin:10px 0}.finding summary{cursor:pointer;font-weight:600}
+.home{font-size:13px;font-weight:400;margin-left:10px}.pgnrow{background:var(--card);border:1px solid var(--line);
+border-radius:10px;padding:8px 12px;margin:8px 0}.copy{border:1px solid var(--line);background:var(--card);color:var(--fg);
+border-radius:6px;padding:1px 8px;cursor:pointer;font:inherit}
 .claim{margin:8px 0}.gain{float:right;font-weight:600;color:var(--accent)}.more{font-size:13px}.todo{margin:8px 0 2px}
 .tag{font-size:12px;font-weight:600;border-radius:6px;padding:1px 7px;margin-right:6px;color:#fff;background:#888}
 .tag.solid{background:#c0392b}.tag.lead{background:#d68910}.tag.style{background:#7f8c8d}
@@ -197,6 +203,11 @@ const btns=document.querySelectorAll('nav button'),panes=document.querySelectorA
 function show(id){btns.forEach(b=>b.classList.toggle('on',b.dataset.tab===id));
  panes.forEach(p=>p.classList.toggle('on',p.id===id));try{localStorage.setItem('tab',id)}catch(e){}}
 btns.forEach(b=>b.onclick=()=>show(b.dataset.tab));
+document.querySelectorAll('button.copy').forEach(b=>b.onclick=async()=>{
+ const t=document.getElementById(b.dataset.src).value;
+ try{await navigator.clipboard.writeText(t);}catch(e){const a=document.createElement('textarea');a.value=t;
+  document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();}
+ b.textContent='copied \u2713';setTimeout(()=>b.textContent='Copy PGN',1500);});
 let start=null;try{start=localStorage.getItem('tab')}catch(e){}
 show(start&&document.getElementById(start)?start:btns[0].dataset.tab);
 """

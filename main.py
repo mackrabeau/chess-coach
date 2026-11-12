@@ -228,7 +228,8 @@ def main() -> None:
         else:
             say(f"   {s.name} done in {(time.time() - t0) / 60:.1f} min")
     say(f"\nall done in {(time.time() - t_all) / 3600:.2f} h" + (f"; failed: {', '.join(failed)}" if failed else ""))
-    say(f"reports: {scope_path(cfg, 'player')} (report.html + detailed *.html)")
+    from coach.hub import build_index
+    say(f"open {build_index(cfg)}  (every player's report, comparisons, logs)")
     say(f"log: {log_path}")
 
 

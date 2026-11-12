@@ -82,7 +82,7 @@ def main() -> None:
             + "</div>"
         )
     path = out / "ideas_report.html"
-    path.write_text(page("Ideas report", "".join(parts)), encoding="utf-8")
+    path.write_text(page("Ideas report", "".join(parts), back=None), encoding="utf-8")
     print(f"wrote {path}")
 
 
