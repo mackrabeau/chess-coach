@@ -101,7 +101,8 @@ def main() -> None:
                 c = f"You played {san(r.fen, r.move)} (-{100 * r.wp_loss:.0f})."
                 if p in why:
                     c += f" Why: {why[p]}."
-                t["puzzles"].append({"fen": r.fen, "solution": list(r.best_line), "comment": c, "date": r.date})
+                t["puzzles"].append({"fen": r.fen, "solution": list(r.best_line), "comment": c, "date": r.date,
+                                     "wrong_line": list(r.played_line)})
         for z in d.get("puzzles", []):
             if z["fen"] not in t["seen"]:
                 t["seen"].add(z["fen"])
@@ -111,7 +112,8 @@ def main() -> None:
         pz = t["puzzles"][: args.max_puzzles]
         if len(pz) < 3:
             continue
-        ch = [puzzle_chapter(f"{name} #{i + 1} {z['date']}".strip(), z["fen"], z["solution"], z["comment"])
+        ch = [puzzle_chapter(f"{name} #{i + 1} {z['date']}".strip(), z["fen"], z["solution"], z["comment"],
+                             wrong_line=z.get("wrong_line"))
               for i, z in enumerate(pz)]
         drill_files[name] = (write_studies(ch, P / f"drills_{slug(name)}"), pz)
 

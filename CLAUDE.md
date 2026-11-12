@@ -44,7 +44,9 @@ reuses any peer set covering a band) · 17b category findings · 18 opening trap
 extended", Lichess studies via `coach/study.py`) · 22 import PGN games · 20 report (aggregates findings: Summary +
 Opening/Middlegame/Endgame by expected Elo gain, Exploitation, Games, Drills, Method, Files) · 23 head-to-head.
 Shared code: `coach/` (runner, results, categories, openings, maia, difficulty, stats, findings, why, game_rating,
-webreport, hub, report, study). `pos_id = "{source}:{game_id}:{ply}"` joins everything. Evals from the mover's POV;
+webreport, hub, report, study, lines). `coach/lines.follow_up` turns a move into move + engine continuation (cached);
+`findings.write` applies it to every one-move example / puzzle (best move = the plan, mistake = the punishment),
+and puzzle chapters carry the wrong move's refutation as a side line. `pos_id = "{source}:{game_id}:{ply}"` joins everything. Evals from the mover's POV;
 win prob = Lichess logistic; ok < 0.03 ≤ mistake ≤ 0.20 < blunder; critical = best beats 2nd by ≥ 0.10.
 
 ## Method rules (why things are the way they are)

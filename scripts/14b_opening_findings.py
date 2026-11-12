@@ -139,7 +139,8 @@ def main() -> None:
                              f"{100 * loss:.0f} points. Play <b>{san(r.fen, best)}</b>.", "solid", gain,
                              "loss × times per game", None, [example(r.fen, [best], [mv], r.path)],
                              {"theme": "opening lines", "puzzles": [{"fen": r.fen, "solution": [best],
-                                                                    "comment": f"Not {san(r.fen, mv)} (-{100 * loss:.0f})."}]},
+                                                                    "comment": f"Not {san(r.fen, mv)} (-{100 * loss:.0f}).",
+                                                                    "wrong": mv}]},
                              "Learn the move; the repertoire study has the follow-ups.", "repertoire.html"))
 
     # ---------------- 3. regressions over time
@@ -184,7 +185,8 @@ def main() -> None:
                              "solid", elo_gain((vs[0] - vs[1]) * (1 - hit) * len(g) / max(n_games, 1)),
                              "gap to 2nd best × misses per game", None,
                              [example(r.fen, [best], [g.move.mode().iat[0]], r.path)],
-                             {"theme": "opening lines", "puzzles": [{"fen": r.fen, "solution": [best], "comment": "Only move."}]}))
+                             {"theme": "opening lines", "puzzles": [{"fen": r.fen, "solution": [best], "comment": "Only move.",
+                                                                    "wrong": g.move.mode().iat[0]}]}))
     ri = O / "report_items.json"
     if ri.exists():
         for c in json.loads(ri.read_text()).get("missed_punish", []):
@@ -193,7 +195,8 @@ def main() -> None:
                                  f"{c['count']}x.", "lead", elo_gain(c["loss"] * c["count"] / max(n_games, 1)),
                                  "loss × times per game", None, [example(c["fen"], [c["best"]], [c["move"]], c["line"])],
                                  {"theme": "opening lines", "puzzles": [{"fen": c["fen"], "solution": [c["best"]],
-                                                                        "comment": "Punish the mistake."}]}))
+                                                                        "comment": "Punish the mistake.",
+                                                                        "wrong": c["move"]}]}))
 
     # ---------------- 5. evolution over time (detailed page)
     outs["year"] = outs.date.astype(str).str[:4]

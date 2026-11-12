@@ -36,6 +36,7 @@ from coach.config import data_dir, data_root, load_config, scope_path
 from coach.fetch_chesscom import iter_player_games
 from coach.findings import load_all
 from coach.hub import build_index, files_section, rel
+from coach.lines import follow_up
 from coach.openings import opening_engine, player_tree
 from coach.study import chapter, write_studies
 from coach.webreport import Report, esc
@@ -122,12 +123,17 @@ def exploit_section(rep, X: Player, Y: Player, E, cc, out_dir):
         elif len(bad) > 1 and bad[:-1].mean() >= 0.5 and not bad[-1]:
             fixed.append(item)
     exploit.sort(key=lambda x: -(x["loss"] * (1 + x["reach"]) * x["recent_bad"]))
-    ex = "".join(rep.example(x["fen"], [x["best"]], [x["move"]],
+    # follow-ups (coach/lines.py): the punishment after their move, and the plan after the right one
+    L = follow_up(X.cfg, [(x["fen"], m) for x in exploit[:40] for m in (x["best"], x["move"])])
+    for x in exploit:
+        x["best_line"] = L.get((x["fen"], x["best"]), [x["best"]])
+        x["move_line"] = L.get((x["fen"], x["move"]), [x["move"]])
+    ex = "".join(rep.example(x["fen"], x["best_line"], x["move_line"],
                              f"{esc(x['path'])} · {esc(Y.name)} played {esc(san(x['fen'], x['move']))} in "
                              f"{x['recent_bad']} of their last {x['recent_n']} visits (last {esc(x['last'])}) · "
                              f"−{100 * x['loss']:.0f} · " + (f"<b>you reach it ({x['reach']}x)</b>" if x["reach"]
                                                               else "not in your games yet"),
-                             labels=("best move", "their move")) for x in exploit[:10])
+                             labels=("best move", "their move → punish")) for x in exploit[:10])
     parts.append("<h2>Opening</h2>")
     parts.append(Report.finding(f"Mistakes {Y.name} keeps making", f"{len(exploit)} positions where {esc(Y.name)}'s "
                                 "latest game still went wrong and most of their recent visits did. Know the punishment; "
@@ -185,9 +191,23 @@ def exploit_section(rep, X: Player, Y: Player, E, cc, out_dir):
     chapters = []
     for x in exploit[:40]:
         g = chapter(f"{X.name} vs {Y.name}: {x['path']}", "black" if chess.Board(x["fen"]).turn else "white", x["fen"])
-        node = g.add_variation(chess.Move.from_uci(x["move"]))
-        node.comment = (f"{Y.name} played this in {x['recent_bad']} of the last {x['recent_n']} visits "
-                        f"(-{100 * x['loss']:.0f}); best was {san(x['fen'], x['best'])}. Find the punishment.")
+        node = g
+        for k, u in enumerate(x["move_line"]):           # their move, then your punishment and the follow-up
+            mv = chess.Move.from_uci(u)
+            if mv not in node.board().legal_moves:
+                break
+            node = node.add_variation(mv)
+            if k == 0:
+                node.comment = (f"{Y.name} played this in {x['recent_bad']} of the last {x['recent_n']} visits "
+                                f"(-{100 * x['loss']:.0f}). Next move: the punishment.")
+        alt = g
+        for k, u in enumerate(x["best_line"]):           # what they should have played, as a side line
+            mv = chess.Move.from_uci(u)
+            if mv not in alt.board().legal_moves:
+                break
+            alt = alt.add_variation(mv)
+            if k == 0:
+                alt.comment = "Their best move here."
         chapters.append(g)
     files = write_studies(chapters, out_dir / f"prep_{X.name.lower()}_to_{Y.name.lower()}") if chapters else []
     if files:

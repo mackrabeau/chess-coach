@@ -25,8 +25,10 @@ def chapter(title: str, orientation: str = "white", fen: str | None = None) -> c
 
 
 def puzzle_chapter(title: str, fen: str, solution: list[str], comment: str = "",
-                   orientation: str | None = None) -> chess.pgn.Game:
-    """A 'find the move' chapter: start position + solution line; the comment explains why."""
+                   orientation: str | None = None, wrong_line: list[str] | None = None,
+                   wrong_comment: str = "") -> chess.pgn.Game:
+    """A 'find the move' chapter: start position + solution line (with the engine's follow-up); the comment
+    explains why. wrong_line: the tempting wrong move and how it gets punished, as a side variation."""
     b = chess.Board(fen)
     g = chapter(title, orientation or ("white" if b.turn else "black"), fen)
     node = g
@@ -37,6 +39,15 @@ def puzzle_chapter(title: str, fen: str, solution: list[str], comment: str = "",
         node = node.add_variation(mv)
     if comment and node is not g:
         g.variations[0].comment = comment
+    if wrong_line and g.variations and wrong_line[0] != (solution or [None])[0]:
+        node = g
+        for k, u in enumerate(wrong_line):
+            mv = chess.Move.from_uci(u)
+            if mv not in node.board().legal_moves:
+                break
+            node = node.add_variation(mv)
+            if k == 0:
+                node.comment = wrong_comment or "Tempting, but this is how it gets punished."
     return g
 
 
