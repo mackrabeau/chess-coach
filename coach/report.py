@@ -9,10 +9,13 @@ import chess.svg
 GREEN, RED = "#1f9d55cc", "#d64545cc"
 
 CSS = """
-:root { --bg:#fbfaf7; --fg:#1d1d1b; --muted:#6b6a65; --card:#ffffff; --line:#e4e1d8; --accent:#1f9d55; --bad:#c23b3b; }
+:root { --bg:#fbfaf7; --fg:#1d1d1b; --muted:#6b6a65; --card:#ffffff; --line:#e4e1d8; --accent:#1f9d55; --bad:#c23b3b;
+        --link:#1a5fd0; --link-visited:#6b3fb0; }
 @media (prefers-color-scheme: dark) {
-  :root { --bg:#161614; --fg:#ecebe6; --muted:#9a998f; --card:#1f1f1c; --line:#33322d; --accent:#4cc38a; --bad:#ef6b6b; }
+  :root { --bg:#161614; --fg:#ecebe6; --muted:#9a998f; --card:#1f1f1c; --line:#33322d; --accent:#4cc38a; --bad:#ef6b6b;
+          --link:#8ab4ff; --link-visited:#c3a6ff; }
 }
+a { color: var(--link); } a:visited { color: var(--link-visited); } a:hover { text-decoration-thickness: 2px; }
 * { box-sizing: border-box; }
 body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; }
 main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 64px; }

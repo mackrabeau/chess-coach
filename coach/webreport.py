@@ -115,9 +115,11 @@ class Report:
 
 CSS = """
 :root{--bg:#fbfaf7;--fg:#1d1d1f;--muted:#6b6b70;--card:#fff;--line:#e4e1da;--accent:#2f6fde;
---light:#ecdcb9;--dark:#b58863;--hl:rgba(255,215,0,.55);--best:#2a9d55;--bad:#d1453b}
+--light:#ecdcb9;--dark:#b58863;--hl:rgba(255,215,0,.55);--best:#2a9d55;--bad:#d1453b;
+--link:#1a5fd0;--link-visited:#6b3fb0}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#17181b;--fg:#ececec;
---muted:#9a9aa2;--card:#212227;--line:#33343a;--accent:#7aa7ff}}
+--muted:#9a9aa2;--card:#212227;--line:#33343a;--accent:#7aa7ff;--link:#8ab4ff;--link-visited:#c3a6ff}}
+a{color:var(--link)}a:visited{color:var(--link-visited)}a:hover{text-decoration-thickness:2px}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);
 font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 16px}
