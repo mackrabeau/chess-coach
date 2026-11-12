@@ -201,6 +201,8 @@ Engine output per position: best_move, cp_best, cp_played, alt_move/cp_alt (2nd 
 - Windows gotchas already handled: spawn-safe multiprocessing (`__main__` guards, top-level workers, `mp.freeze_support()`), `pathlib` everywhere, `zstandard` package for `.zst`.
 
 ## Next steps
+**Parked ideas and future work live in `docs/future_work.md`** (time management model, clean-endgame plan execution, human search stage 2, exploitation extensions, SAE, smaller follow-ups). The list below is the original plan, partly done.
+
 1. On real data: `06c` both sets → `07b` (eyeball motif detectors, esp. "missed: pin") → `08`.
    Real results before cashed-in rule + deep pass: missed pin 1.87× (17 vs 11 expected, clear); allowed winning capture 0.72× (strength); "no material swing: other" = 47% of peer tactics records, 0.89 vs 0.85 per 100 moves (≈ half of Mack's blunder loss). Positional concepts: only clear signal = your development 0.67× (strength).
 2. **Go/no-go**: in `ideas_report.html`, do ≥ ~1/3 of stable ideas show a recognizable shared idea in most of their top positions? Check `sweep.csv` for how stable-atom count scales with K.
