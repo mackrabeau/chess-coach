@@ -159,6 +159,7 @@ def main() -> None:
                          "trap_loss": top.loss, "book_n": int(v.n.sum()),
                          "best": max(vals, key=vals.get)})
     A = pd.DataFrame(rows)
+    A.to_parquet(od / "traps_A.parquet", index=False)
     cards = []
     L.append(f"A. positions you reach where {opp_band} players often go wrong (>= {100 * tc['bad']:.0f} points):")
     if len(A):

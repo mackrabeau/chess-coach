@@ -100,6 +100,8 @@ STAGES = [
           ["player/practical_tree.parquet"], maia=True),
     Stage("traps", "18_opening_traps.py", [], ["openings/book.parquet", "openings/engine*/*.parquet"],
           ["player/opening_traps.html"], maia=True),
+    Stage("report", "20_report.py", [], ["player/*.parquet", "openings/*.json", "openings/*.parquet"],
+          ["player/report.html"]),
 ]
 
 
