@@ -12,7 +12,8 @@ Per colour, a tree from the start position:
               play (Lichess book from 14, >= min_book games), else Maia at your opponents' level;
               replies under min_reply_p (5%) are dropped. Replies that lose >= repertoire.bad (8
               points) compared with their best listed reply are flagged, with the punishment.
-Grown most-likely-first to move ~15 (max_ply 30), stopping when a line's probability < min_prob,
+Grown most-likely-first to move ~15 (max_ply 30), stopping when a line's probability < min_prob (0.2%;
+probabilities multiply along a line, so 1% stopped main lines around move 8),
 within an engine budget per colour (resumable; the cache is shared with 14).
 
 Output:
@@ -45,9 +46,9 @@ from coach.openings import band_labels, evaluate, opening_engine, player_tree
 from coach.report import page, position_card
 from coach.study import chapter, write_studies
 
-REP = {"max_ply": 30, "reply_mass": 0.9, "min_reply_p": 0.05, "max_replies": 4, "min_prob": 0.01,
+REP = {"max_ply": 30, "reply_mass": 0.9, "min_reply_p": 0.05, "max_replies": 4, "min_prob": 0.002,
        "also_fine": 0.02, "bad": 0.08, "nodes": 1000000, "multipv": 3, "budget": 1500, "min_book": 30,
-       "chapter_min_prob": 0.03}
+       "chapter_min_prob": 0.02}
 OPEN_DEFAULTS = {"max_ply": 30, "out_ply": 20, "bands": [1600, 1800, 2000, 2200, 2400, 4000]}
 
 
