@@ -10,7 +10,8 @@ Two layers:
    move choice given what you and they are likely to play.
 
 Design notes: `docs/report_design.md` (report + drills, proposal), `docs/generalize.md` (what is
-tailored to one player). Detailed method/status log: `CLAUDE.md`.
+tailored to one player), `docs/agents.md` (how analysis modules publish findings). Method rules and
+pipeline overview: `CLAUDE.md`.
 
 ## Setup
 
@@ -57,14 +58,32 @@ multi-band data. Everything is saved as it goes. Then `python main.py` rebuilds 
 
 ## Outputs
 
+Start at `data/index.html`: a hub linking every player's report, head-to-head comparisons and run logs.
+Per player, files live in `data/players/<username>/player/`:
+
 | file | what |
 |---|---|
-| `data/player/player_report.html` | main report so far (tracks, ideas, tactics, Maia difficulty, progress) |
-| `data/player/openings_report.html` | opening lines that cost you (engine-only), must-know positions |
-| `data/player/endgame_report.html`, `balanced_endgames.html` | endgames by outcome, tablebase, balanced endgames |
+| `report.html` | the main report: Summary, Opening / Middlegame / Endgame findings ordered by expected Elo gain, Exploitation, Games, Drills (puzzle mode), Method, Files |
+| `drills_*.pgn`, `repertoire.html` | drill studies per weakness theme; "your lines, extended" repertoire (Lichess study PGNs) |
+| `player_report.html` | detailed report (tracks, ideas, tactics, Maia difficulty, progress) |
+| `openings_report.html` | opening lines that cost you (engine-only), must-know positions |
+| `endgame_report.html`, `balanced_endgames.html` | endgames by outcome, tablebase, balanced endgames |
+| `opening_traps.html`, `practical_tree_report.html` | exploitation (exploratory) |
 | stdout of 15 / 16 / 17 | score accounting, skill profile (Maia + engine), multi-band skill vs style |
-| `data/player/opening_traps.html`, `practical_tree_report.html` | exploitation (exploratory) |
-| `data/ideas/*.html` | idea and tactics-detector inspection |
+| `data/population_<lo>_<hi>/ideas/*.html` | idea and tactics-detector inspection (per peer band) |
+
+## Second player / head-to-head
+
+A second player only needs a small config with `extends: <you>.yaml` and their own `player` /
+`population` block (see `configs/example_second_player.yaml`); their data goes to
+`data/players/<them>/` and peer bands are shared between players. Then:
+
+```
+python scripts/23_compare_players.py --config configs/local/<you>.yaml --other configs/local/<them>.yaml
+```
+
+writes `data/compare/<you>_vs_<them>/report.html` (what each side can exploit in the other, phase
+comparison, games against each other). `configs/example_quick.yaml` is a faster mode for this.
 
 `scripts/diagnostics/` holds one-off checks (rating calibration, Maia probe, line-end check,
 clock confound, step-2 practical value); they are not part of the main run.
@@ -73,8 +92,8 @@ clock confound, step-2 practical value); they are not part of the main run.
 
 `population.rating_center` should be the Lichess equivalent of your chess.com rating. After the
 engine pass, `python scripts/diagnostics/02b_engine_summary.py` compares your loss profile with the
-band; if yours is clearly lower, raise the center by ~100 (and the reverse). Delete
-`data/population/` before re-mining with a new band.
+band; if yours is clearly lower, raise the center by ~100 (and the reverse). A new band gets its own
+`data/population_<lo>_<hi>/` folder; delete the old one if nobody else uses it.
 
 ## Smoke test (no downloads)
 

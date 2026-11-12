@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # chess-coach — context for Claude Code
 
 Chess coaching pipeline: finds what costs a player rating points, how sure we are, and what to train, from their
@@ -17,6 +21,11 @@ paths; keep shared docs generic. Other docs: `docs/agents.md` (modules publish f
 - `python main.py --config configs/local/<you>.yaml [--list|--only a,b|--from x|--force x|--update|--skip-maia|--offline]`:
   all stages, make-style (outputs newer than inputs are skipped; resumable passes always invoked). Writes
   `data/logs/main_<time>.log` and rebuilds the hub `data/index.html` (every player's report, comparisons, logs).
+  `--only/--from/--force` take the stage names from `STAGES` in `main.py` (e.g. `report`, `opening-findings`,
+  `engine-player`), not script numbers. A new script must be registered there with its input/output globs
+  (relative to the player's data dir) or main.py never runs it. Every script also runs standalone:
+  `python scripts/<nn>_<name>.py --config ...`.
+- `--config configs/v0.yaml` (the default everywhere) also resolves `configs/local/v0.yaml` (`coach/config.py`).
 - `python refine.py --config ...`: compute pouring (level k = engine.nodes × 4^k on priority positions → opening
   tree / repertoire deeper → more band data → all positions; `data/<set>/engine_L<k>/`, deepest wins in
   `load_analyzed`; `refined=False` for comparisons with never-refined sets). Runs `main.py --update` (new games +
@@ -24,7 +33,9 @@ paths; keep shared docs generic. Other docs: `docs/agents.md` (modules publish f
 - Head-to-head: `python scripts/23_compare_players.py --config A --other B` → `data/compare/<a>_vs_<b>/report.html`.
 - Second player = small config with `extends: <first>.yaml` (see `configs/example_second_player.yaml`); quick
   head-to-head mode: `configs/example_quick.yaml`.
-- Tests: fake data via `tests/make_fake_data.py` + `tests/test.yaml` (player `test_player`, opponent `someone`).
+- Tests (no test suite; a fake-data end-to-end run is the test): `python tests/make_fake_data.py --config tests/test.yaml`
+  then `python main.py --config tests/test.yaml --offline` (set `paths.stockfish` first). Fake data via
+  `tests/make_fake_data.py` + `tests/test.yaml` (player `test_player`, opponent `someone`).
   Locally: `sed 's#C:/tools/stockfish/stockfish-windows-x86-64-avx2.exe#/usr/games/stockfish#' tests/test.yaml > tests/local.yaml`
   (ignored by git). Fake games are engine-played: Maia fits hit the grid edge, you-vs-peers "within noise".
 
