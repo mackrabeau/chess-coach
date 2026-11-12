@@ -9,6 +9,7 @@ A finding (dict):
   title     short name                                     claim    one or two sentences (HTML allowed)
   tag       solid | lead | strength | style | info | exploratory
   elo       expected rating gain if fixed (see elo_gain), or None   elo_note  how it was computed
+  rank      optional ordering key (Elo x trainability); the report sorts by rank, else elo
   evidence  {"header": [...], "rows": [[...]]} or None
   examples  [{"fen", "best": [uci], "played": [uci], "note"}]  (your positions; boards in the report)
   drill     {"theme": str, "pos_ids": [player pos_ids]} or None  (puzzles; the report builds the study)
@@ -33,10 +34,12 @@ def elo_gain(win_prob_per_game: float) -> float:
 
 
 def finding(id, section, title, claim, tag, elo=None, elo_note="", evidence=None, examples=None,
-            drill=None, todo="", link=None) -> dict:
+            drill=None, todo="", link=None, rank=None) -> dict:
+    """rank: optional ordering key (e.g. Elo x trainability); the report sorts by it, else by elo."""
     assert section in SECTIONS, section
+    num = lambda x: None if x is None or x != x else round(float(x), 1)
     return {"id": str(id), "section": section, "title": title, "claim": claim, "tag": tag,
-            "elo": None if elo is None or elo != elo else round(float(elo), 1), "elo_note": elo_note,
+            "elo": num(elo), "elo_note": elo_note, "rank": num(rank),
             "evidence": evidence, "examples": examples or [], "drill": drill, "todo": todo, "link": link}
 
 

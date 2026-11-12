@@ -61,14 +61,15 @@ STAGES = [
     Stage("engine-population", "02_engine_lines.py", ["--set", "population"], always=True),
     Stage("settle-player", "03_settle_lines.py", ["--set", "player"], always=True),
     Stage("settle-population", "03_settle_lines.py", ["--set", "population"], always=True),
-    Stage("deep-player", "06c_deepen_tactics.py", ["--set", "player"], always=True),
-    Stage("deep-population", "06c_deepen_tactics.py", ["--set", "population"], always=True),
     # features, ideas
     Stage("deltas-player", "05_build_deltas.py", ["--set", "player"],
           eng("player") + ["player/engine_q/*.parquet"], ["player/deltas.npz"]),
     Stage("deltas-population", "05_build_deltas.py", ["--set", "population"],
           eng("population") + ["population/engine_q/*.parquet"], ["population/deltas.npz"]),
     Stage("ideas", "06_learn_ideas.py", [], ["*/deltas.npz"], ["ideas/model.pkl"]),
+    # 06c needs ideas/model.pkl, so it runs after 06
+    Stage("deep-player", "06c_deepen_tactics.py", ["--set", "player"], always=True),
+    Stage("deep-population", "06c_deepen_tactics.py", ["--set", "population"], always=True),
     # Maia (GPU)
     Stage("maia", "09b_maia_difficulty.py", ["--set", "both"], always=True, maia=True),
     Stage("anatomy", "09c_error_anatomy.py", [], eng("player") + eng("population") + ["*/maia_*/*.parquet"],
@@ -101,6 +102,8 @@ STAGES = [
     Stage("category-findings", "17b_category_findings.py", [], ["player/skill_profile.parquet",
                                                                 "player/multiband.parquet"] + eng("player"),
           ["findings/categories.json"]),
+    Stage("weakness", "24_weakness_model.py", [], eng("player") + eng("population"),
+          ["findings/weakness.json", "player/weakness_model.parquet"]),
     Stage("imported-games", "22_import_games.py", [], always=True),
     # layer 2: exploitation (exploratory)
     Stage("practical-tree", "13_practical_tree.py", [], eng("player") + eng("population"),

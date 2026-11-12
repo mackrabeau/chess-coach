@@ -9,3 +9,4 @@ tests/someone.yaml
 configs/local/
 CLAUDE.local.md
 docs/local/
+.claude/settings.local.json

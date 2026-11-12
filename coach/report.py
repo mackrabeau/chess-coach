@@ -1,4 +1,6 @@
-"""Small HTML helpers for the inspection and player reports (single self-contained file)."""
+"""Small HTML helpers for the inspection and player reports (single self-contained file).
+
+Shares the colour tokens, typography and theme setting of the main report (coach/webreport.py)."""
 from __future__ import annotations
 
 import html
@@ -6,39 +8,37 @@ import html
 import chess
 import chess.svg
 
-GREEN, RED = "#1f9d55cc", "#d64545cc"
+from .webreport import BASE_CSS, THEME_JS
 
-CSS = """
-:root { --bg:#fbfaf7; --fg:#1d1d1b; --muted:#6b6a65; --card:#ffffff; --line:#e4e1d8; --accent:#1f9d55; --bad:#c23b3b;
-        --link:#1a5fd0; --link-visited:#6b3fb0; }
-@media (prefers-color-scheme: dark) {
-  :root { --bg:#161614; --fg:#ecebe6; --muted:#9a998f; --card:#1f1f1c; --line:#33322d; --accent:#4cc38a; --bad:#ef6b6b;
-          --link:#8ab4ff; --link-visited:#c3a6ff; }
-}
-a { color: var(--link); } a:visited { color: var(--link-visited); } a:hover { text-decoration-thickness: 2px; }
-* { box-sizing: border-box; }
-body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; }
-main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 64px; }
-h1 { font-size: 26px; margin: 0 0 4px; }
-h2 { font-size: 20px; margin: 40px 0 6px; padding-top: 16px; border-top: 1px solid var(--line); }
-.muted { color: var(--muted); }
-.tag { display:inline-block; font-size:12px; padding:1px 8px; border-radius:999px; border:1px solid var(--line); margin-right:6px; }
-.tag.stable { border-color: var(--accent); color: var(--accent); }
-.feats { margin: 8px 0 14px; padding: 0; list-style: none; display:flex; flex-wrap:wrap; gap:6px; }
-.feats li { background: var(--card); border:1px solid var(--line); border-radius:6px; padding:2px 8px; font-size:13px; }
-.up { color: var(--accent); font-weight: 600; } .down { color: var(--bad); font-weight: 600; }
-.grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
-.card { background: var(--card); border:1px solid var(--line); border-radius: 10px; padding: 10px; font-size: 13px; }
-.card svg { width: 100%; height: auto; display:block; }
-.card .line { font-family: ui-monospace, Consolas, monospace; font-size: 12px; word-break: break-word; }
-.best { color: var(--accent); } .played { color: var(--bad); }
-table { border-collapse: collapse; margin: 10px 0; font-size: 14px; }
-td, th { padding: 4px 10px; border-bottom: 1px solid var(--line); text-align: right; }
-th:first-child, td:first-child { text-align: left; }
+GREEN, RED = "#15781bd9", "#c8281ecc"
+# same board colours as the main report
+BOARD = {"square light": "#f0d9b5", "square dark": "#b58863", "square light lastmove": "#cdd26a",
+         "square dark lastmove": "#aaa23b", "margin": "#2b2b2e", "coord": "#e8e8e8"}
+
+CSS = BASE_CSS + """
+main { max-width: 1180px; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
+h1 { font-size: 1.6rem; margin: .4rem 0 .3rem; }
+h2 { margin: 2.6rem 0 .6rem; padding-top: 1.1rem; border-top: 1px solid var(--line); }
+.backnav { font-size: .92rem; margin: 0 0 1rem; }
+.tag { display:inline-block; font-size:.78rem; padding:.05rem .55rem; border-radius:4px; border:1px solid var(--line);
+  margin-right:6px; }
+.tag.stable { border-color: var(--good); color: var(--good); }
+.feats { margin: .5rem 0 1rem; padding: 0; list-style: none; display:flex; flex-wrap:wrap; gap:6px; max-width:none; }
+.feats li { background: var(--surface); border:1px solid var(--line); border-radius:6px; padding:.1rem .6rem;
+  font-size:.88rem; max-width:none; }
+.up { color: var(--good); font-weight: 600; } .down { color: var(--bad); font-weight: 600; }
+.grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 1rem; }
+.card { background: var(--surface); border:1px solid var(--line); border-radius: 8px; padding: .7rem;
+  font-size: .9rem; line-height: 1.5; box-shadow: var(--shadow); }
+.card svg { width: 100%; height: auto; display:block; border-radius: 3px; }
+.card > .muted { margin: .45rem 0 .2rem; }
+.card .line { font-size: .88rem; word-break: break-word; margin-top: .2rem; }
+.best { color: var(--good); } .played { color: var(--bad); }
+td, th { text-align: right; } th:first-child, td:first-child { text-align: left; }
 details summary { cursor: pointer; color: var(--muted); }
 .card.has-ends { position: relative; cursor: zoom-in; outline: none; }
 .card .ends { display: none; position: absolute; top: 0; left: 100%; margin-left: 8px; z-index: 20;
-  grid-template-columns: 1fr 1fr; gap: 10px; width: 470px; padding: 10px; background: var(--card);
+  grid-template-columns: 1fr 1fr; gap: 10px; width: 470px; padding: 10px; background: var(--surface);
   border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
 .card .ends.flip { left: auto; right: 100%; margin-left: 0; margin-right: 8px; }
 .card .ends.below { left: 0; right: auto; top: 100%; margin: 6px 0 0; width: min(470px, 92vw); }
@@ -64,11 +64,11 @@ document.querySelectorAll('.card.has-ends').forEach(function (c) {
 
 def page(title: str, body: str, back: str | None = "report.html") -> str:
     """Detailed per-module page. back: link to the main report (pages live next to it by default)."""
-    nav = (f"<p class='muted'><a href='{html.escape(back)}'>← main report</a> · "
-           f"<a href='../../../index.html'>all players &amp; comparisons</a></p>" if back else "")
+    nav = (f"<p class='backnav'><a href='{html.escape(back)}'>← Main report</a> · "
+           f"<a href='../../../index.html'>All players &amp; comparisons</a></p>" if back else "")
     return (f"<!doctype html><html lang='en'><head><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
-            f"<title>{html.escape(title)}</title><style>{CSS}</style></head>"
+            f"<title>{html.escape(title)}</title><script>{THEME_JS}</script><style>{CSS}</style></head>"
             f"<body><main>{nav}{body}</main><script>{JS}</script></body></html>")
 
 
@@ -98,7 +98,7 @@ def board_svg(fen: str, best: str | None = None, played: str | None = None, size
     if best:
         m = chess.Move.from_uci(best)
         arrows.append(chess.svg.Arrow(m.from_square, m.to_square, color=GREEN))
-    return chess.svg.board(b, orientation=b.turn, arrows=arrows, size=size, coordinates=True)
+    return chess.svg.board(b, orientation=b.turn, arrows=arrows, size=size, coordinates=True, colors=BOARD)
 
 
 def end_board_svg(fen: str, line, size: int = 220) -> str:
@@ -112,7 +112,7 @@ def end_board_svg(fen: str, line, size: int = 220) -> str:
             b.push(last)
     except Exception:
         pass
-    return chess.svg.board(b, orientation=pov, lastmove=last, size=size, coordinates=True)
+    return chess.svg.board(b, orientation=pov, lastmove=last, size=size, coordinates=True, colors=BOARD)
 
 
 def _mover(fen: str) -> str:

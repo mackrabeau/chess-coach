@@ -30,7 +30,7 @@ from coach.hub import build_index, files_section, rel
 from coach.findings import ELO_PER_SCORE, load_all
 from coach.results import load_analyzed
 from coach.study import puzzle_chapter, write_studies
-from coach.webreport import Report, esc
+from coach.webreport import Report, esc, plain_title, slugify
 from coach.why import why_texts
 
 WEAK = ("solid", "lead")
@@ -49,7 +49,9 @@ def san(fen, uci):
 
 
 def gain_key(f):
-    return -(f.get("elo") or 0)
+    """Order by `rank` (Elo value x trainability) when a module sets it, else by Elo."""
+    r = f.get("rank")
+    return -(r if r is not None else (f.get("elo") or 0))
 
 
 def main() -> None:
@@ -60,31 +62,50 @@ def main() -> None:
     cfg = load_config(args.config)
     P = data_dir(cfg, "player")
     F = load_all(cfg)
-    if not F:
+    if not F and not any(data_dir(cfg, "findings").glob("*.json")):
         sys.exit("no findings yet: run the analysis stages first (python main.py)")
+    if not F:
+        print("note: the analysis stages ran but found nothing clear; writing a report that says so")
     me = load_analyzed(cfg, "player")
     pos = me.set_index("pos_id")
     pids = {e.get("pos_id") for f in F for e in f["examples"]} | \
            {p for f in F if f.get("drill") for p in f["drill"].get("pos_ids", [])}
     why = why_texts(cfg, "player", [p for p in pids if p])
-    rep = Report(f"Chess report · {cfg['player']['username']}", home=rel(data_root(cfg) / "index.html", P))
+    rep = Report(f"Chess report · {cfg['player']['username']}", home=rel(data_root(cfg) / "index.html", P),
+                 subtitle=f"Generated {time.strftime('%Y-%m-%d %H:%M')} · {len(F)} findings · "
+                          "weaknesses ordered by expected rating gain")
 
-    def examples(f):
-        out = []
+    def fid(f):
+        return slugify(f"{f['section']}-{f['title']}")
+
+    def examples(f, seen):
+        """Boards for one finding; positions already shown earlier in the same tab are skipped."""
+        out, dup = [], 0
         for e in f["examples"]:
+            if seen is not None:
+                if e["fen"] in seen:
+                    dup += 1
+                    continue
+                seen.add(e["fen"])
             note = esc(e.get("note", ""))
             w = why.get(e.get("pos_id"))
             if w:
                 note += f"<br><i>{esc(w)}</i>"
             out.append(rep.example(e["fen"], e["best"], e["played"] or None, note))
-        return "".join(out)
+        return "".join(out), dup
 
-    def block(f, open_=True, with_examples=True):
+    def block(f, open_=True, with_examples=True, seen=None):
         ev = ""
         if f.get("evidence"):
             ev = Report.table(f["evidence"]["header"], [[esc(c) for c in r] for r in f["evidence"]["rows"]])
-        return Report.finding(f["title"], f["claim"], f["tag"], ev, examples(f) if with_examples else "",
-                              f.get("todo", ""), f.get("elo"), f.get("elo_note", ""), f.get("link"), open_)
+        exs, dup = examples(f, seen) if with_examples else ("", 0)
+        if dup:
+            ev += (f"<p class='muted'>{'All' if not exs else dup} of its example positions "
+                   f"{'are' if dup > 1 or not exs else 'is'} already shown above.</p>")
+        title = plain_title(f["title"])
+        return Report.finding(title, f["claim"], f["tag"], ev, exs, f.get("todo", ""), f.get("elo"),
+                              f.get("elo_note", ""), f.get("link"), open_,
+                              sub=f["title"] if title != f["title"] else "", fid=fid(f))
 
     # ---------------- drills
     themes: dict[str, dict] = {}
@@ -132,38 +153,62 @@ def main() -> None:
                 kp.append((label, f"~{r.level:.0f}", f"Lichess rapid, 90% CI {r.level_lo:.0f}–{r.level_hi:.0f}"))
     weak_all = sorted([f for f in F if f["tag"] in WEAK and f["section"] in dict(SECTIONS)], key=gain_key)
     total = sum(f.get("elo") or 0 for f in weak_all[:10])
-    kp.append(("top 10 fixes", f"≈ +{total:.0f}", "Elo if fixed (overlapping estimates; an upper bound)"))
-    S.append("<div class='kpis'>" + "".join(f"<div class='kpi'><span class='muted'>{esc(a)}</span><b>{esc(b)}</b>"
-                                            f"<span class='muted'>{esc(c)}</span></div>" for a, b, c in kp) + "</div>")
-    S.append("<h2>Biggest gains</h2><p class='muted'>Expected rating gain if the weakness were fixed (to the next "
-             "rating band's level, or the engine's move in openings). Estimates overlap, so don't add them up.</p>")
+    kp.append(("Top 10 fixes", f"≈ +{total:.0f}", "Elo if all were fixed (estimates overlap: an upper bound)"))
+    if weak_all:
+        top = weak_all[0]
+        S.append(f"<p class='lede'>Your biggest single gain is in the <b>{esc(dict(SECTIONS)[top['section']].lower())}"
+                 f"</b>: {esc(plain_title(top['title']).lower())} (≈ +{top.get('elo') or 0:.0f} Elo).</p>")
+    S.append(Report.kpis([(a[:1].upper() + a[1:], b, c) for a, b, c in kp]))
+    S.append("<h2>Where your rating can grow</h2><p class='muted'>Expected rating gain if the weakness were fixed "
+             "(to the next rating band's level, or the engine's move in openings). Estimates overlap, so don't add "
+             "them up. Click a title for the evidence and example positions.</p><ol class='rank'>")
+    top_elo = max([f.get("elo") or 0 for f in weak_all[:6]] + [1e-9])
     for f in weak_all[:6]:
-        S.append(block({**f, "title": f"{dict(SECTIONS)[f['section']]}: {f['title']}"}, open_=False, with_examples=False))
+        elo = f.get("elo") or 0
+        todo = f.get("todo", "")
+        S.append(f"<li><div class='rh'><span class='rt'><span class='phase'>{esc(dict(SECTIONS)[f['section']])}</span><br>"
+                 f"<a href='#{f['section']}/{fid(f)}'>{esc(plain_title(f['title']))}</a></span>"
+                 f"<span class='tag t-{esc(f['tag'])}'>{esc(f['tag'])}</span>"
+                 f"<span class='gain'>≈ +{elo:.0f} Elo</span></div>"
+                 f"<span class='gbar'><i style='width:{100 * elo / top_elo:.0f}%'></i></span>"
+                 f"<p>{f['claim']}</p>"
+                 + (f"<div class='todo'><span class='todo-k'>What to do</span> {todo}</div>" if todo else "")
+                 + "</li>")
+    S.append("</ol>")
     good = [f for f in F if f["tag"] == "strength"]
     style = [f for f in F if f["tag"] == "style"]
     if good:
-        S.append("<h2>What's working</h2><ul>" + "".join(f"<li>{esc(f['title'])}</li>" for f in good) + "</ul>")
+        S.append("<h2>What's working</h2><ul class='okl'>" + "".join(
+            f"<li><a href='#{f['section']}/{fid(f)}'>{esc(plain_title(f['title']))}</a></li>"
+            if f["section"] in dict(SECTIONS) else f"<li>{esc(plain_title(f['title']))}</li>" for f in good) + "</ul>")
     if style:
-        S.append("<p class='muted'>Style (different from peers, not costing points): "
-                 + ", ".join(esc(f["title"]) for f in style) + "</p>")
+        S.append(f"<details class='plain'><summary>Style: {len(style)} areas where you play differently from peers "
+                 "without losing points</summary><ul>"
+                 + "".join(f"<li>{esc(plain_title(f['title']))}</li>" for f in style) + "</ul></details>")
 
     # ---------------- phase tabs
     for sec, label in SECTIONS:
         T = rep.tab(sec, label)
         weak = sorted([f for f in F if f["section"] == sec and f["tag"] in WEAK], key=gain_key)
         rest = [f for f in F if f["section"] == sec and f["tag"] not in WEAK]
-        T.append(f"<p class='muted'>{len(weak)} areas to improve, largest expected gain first.</p>")
-        T += [block(f, open_=i < 3) for i, f in enumerate(weak)]
+        seen: set = set()
+        T.append(f"<h2>{label}: {len(weak)} area{'s' if len(weak) != 1 else ''} to improve</h2>"
+                 "<p class='muted'>Largest expected gain first. Each block: the finding, what to do, the numbers, then "
+                 "positions from your games (arrows: <span class='ok'>green</span> = best move, "
+                 "<span class='no'>red</span> = your move; ← → step through the line).</p>")
+        T += [block(f, open_=i < 3, seen=seen) for i, f in enumerate(weak)]
         if not weak:
             T.append("<p>No weaknesses passed the rules here.</p>")
         if rest:
-            T.append("<h2>What's working / context</h2>" + "".join(block(f, open_=False) for f in rest))
+            T.append("<h2>What's working and context</h2>" + "".join(block(f, open_=False, seen=seen) for f in rest))
 
     # ---------------- exploitation, games, drills, method
     X = rep.tab("exploit", "Exploitation")
     X.append("<p class='muted'>Exploratory: models of your opponents (Lichess book at their level, Maia where thin). "
              "Looser evidence than the phase tabs.</p>")
-    X += [block(f, open_=i < 3) for i, f in enumerate(sorted([f for f in F if f["section"] == "exploit"], key=gain_key))]
+    xseen: set = set()
+    X += [block(f, open_=i < 3, seen=xseen)
+          for i, f in enumerate(sorted([f for f in F if f["section"] == "exploit"], key=gain_key))]
     G = rep.tab("games", "Games")
     games = [f for f in F if f["section"] == "games"]
     G.append("<p class='muted'>Imported games (e.g. over-the-board): <code>python scripts/22_import_games.py --pgn "
@@ -175,7 +220,7 @@ def main() -> None:
              "days (retrieval + spacing).</p>")
     for name, (files, pz) in drill_files.items():
         ex = "".join(rep.example(z["fen"], z["solution"], None, esc(z["comment"]), puzzle=True) for z in pz[:6])
-        D.append(Report.finding(name, f"{len(pz)} puzzles · " + ", ".join(esc(p.name) for p in files), "lead",
+        D.append(Report.finding(plain_title(name), f"{len(pz)} puzzles · " + ", ".join(esc(p.name) for p in files), "lead",
                                 examples=ex, open_=False))
     rf = sorted(p.name for p in P.glob("repertoire_*.pgn"))
     if rf:
@@ -183,10 +228,15 @@ def main() -> None:
                                 + ", ".join(esc(f) for f in rf), "info", open_=False))
     M = rep.tab("method", "Method")
     M.append("<h2>How to read this</h2><ul>"
-             "<li><b>solid</b>: the engine finds more errors than peers make and a second measure agrees.</li>"
-             "<li><b>lead</b>: one measure only, or a borderline interval.</li>"
-             "<li><b>strength</b>: fewer errors than peers, confirmed twice. <b>style</b>: different, not costly. "
-             "<b>info</b>: context. <b>exploratory</b>: opponent models.</li>"
+             "<li><span class='tag t-solid'>solid</span> the engine finds more errors than peers make and a second "
+             "measure agrees.</li>"
+             "<li><span class='tag t-lead'>lead</span> one measure only, or a borderline interval.</li>"
+             "<li><span class='tag t-strength'>strength</span> fewer errors than peers, confirmed twice.</li>"
+             "<li><span class='tag t-style'>style</span> different from peers, not costing points.</li>"
+             "<li><span class='tag t-info'>info</span> context. <span class='tag t-exploratory'>exploratory</span> "
+             "opponent models, looser evidence.</li>"
+             "<li>Titles are in plain words; the small grey line under a title is the exact category used in the "
+             "data.</li>"
              f"<li><b>≈ +N Elo</b>: expected score gained per game if fixed × {ELO_PER_SCORE:.0f} (rating points per "
              "point of score at an even score). Win-probability loss stands in for score.</li></ul>")
     M.append(f"<p class='muted'>Generated {time.strftime('%Y-%m-%d %H:%M')} from {len(F)} findings.</p>")

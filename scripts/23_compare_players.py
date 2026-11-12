@@ -39,7 +39,7 @@ from coach.hub import build_index, files_section, rel
 from coach.lines import follow_up
 from coach.openings import opening_engine, player_tree
 from coach.study import chapter, write_studies
-from coach.webreport import Report, esc
+from coach.webreport import Report, esc, plain_title
 
 CMP = {"bad": 0.05, "good": 0.03, "recent_months": 12, "recent_min_games": 100, "min_visits": 2, "recent_k": 3,
        "steer_gap": 100}
@@ -59,7 +59,14 @@ def levels(cfg):
     if not p.exists():
         return None
     mb = pd.read_parquet(p)
-    return mb[mb.metric == "loss per 100 moves"].set_index("category").level
+    return mb[mb.metric == "loss per 100 moves"].set_index("category")[["level", "level_lo", "level_hi"]]
+
+
+def inflatable(cat: str) -> bool:
+    """Rows that include lost positions played out (all endgames, endgame types, losing, < 1 min): a player
+    who resigns less looks better there. Steer only on their contested ('balanced') versions."""
+    c = cat.lower()
+    return ("endgame" in c or "losing" in c or "< 1 min" in c) and "contested" not in c
 
 
 def recent_games(tree, cc):
@@ -175,18 +182,25 @@ def exploit_section(rep, X: Player, Y: Player, E, cc, out_dir):
     # middlegame / endgame: where Y is weaker than X
     parts.append("<h2>Middlegame and endgame</h2>")
     if X.levels is not None and Y.levels is not None:
-        cats = [c for c in X.levels.index if c in Y.levels.index and pd.notna(X.levels[c]) and pd.notna(Y.levels[c])
-                and c != "all moves"]
-        steer = sorted(((c, X.levels[c] - Y.levels[c]) for c in cats if X.levels[c] - Y.levels[c] >= cc["steer_gap"]),
+        lx, ly = X.levels, Y.levels
+        cats = [c for c in lx.index if c in ly.index and c != "all moves" and not inflatable(c)
+                and lx.loc[c].notna().all() and ly.loc[c].notna().all()]
+        # a steer needs a big gap AND non-overlapping 90% intervals: single-category levels are +-150 or more,
+        # and all-endgame / losing rows are inflated for players who play lost positions out
+        steer = sorted(((c, lx.level[c] - ly.level[c]) for c in cats
+                        if lx.level[c] - ly.level[c] >= cc["steer_gap"] and lx.level_lo[c] > ly.level_hi[c]),
                        key=lambda r: -r[1])
+        txt = ", ".join(f"<b>{esc(plain_title(c))}</b> ({d:+.0f}; you {lx.level_lo[c]:.0f}–{lx.level_hi[c]:.0f} vs "
+                        f"them {ly.level_lo[c]:.0f}–{ly.level_hi[c]:.0f})" for c, d in steer[:8])
         parts.append(Report.finding(f"Where to steer the game against {Y.name}",
-                                    "Kinds of positions where they play clearly below you (band scale, ≥ "
-                                    f"{cc['steer_gap']}): " + (", ".join(f"<b>{esc(c)}</b> ({d:+.0f})" for c, d in steer[:8])
-                                                                or "none ≥ the threshold."), "exploratory"))
+                                    f"Kinds of positions where they play clearly below you (band scale, gap ≥ "
+                                    f"{cc['steer_gap']} and 90% intervals not overlapping): "
+                                    + (txt or "none: no gap is larger than the uncertainty."), "exploratory"))
     yw = sorted([f for f in Y.findings if f["tag"] in ("solid", "lead") and f["section"] in ("middlegame", "endgame")],
-                key=lambda f: -(f.get("elo") or 0))[:6]
+                key=lambda f: -(f["rank"] if f.get("rank") is not None else (f.get("elo") or 0)))[:6]
     for f in yw:
-        parts.append(Report.finding(f"{Y.name}: {f['title']}", f["claim"], f["tag"], elo=f.get("elo"), open_=False))
+        parts.append(Report.finding(f"{Y.name}: {plain_title(f['title'])}", f["claim"], f["tag"], elo=f.get("elo"), open_=False,
+                                    sub=f["title"] if plain_title(f["title"]) != f["title"] else ""))
     # study
     chapters = []
     for x in exploit[:40]:
@@ -236,19 +250,20 @@ def main() -> None:
                                 f"({sum(x == 1 for x in h2h)} wins, {sum(x == 0.5 for x in h2h)} draws, "
                                 f"{sum(x == 0 for x in h2h)} losses).", "info"))
     if A.levels is not None and B.levels is not None:
-        cats = [c for c in A.levels.index if c in B.levels.index and pd.notna(A.levels[c]) and pd.notna(B.levels[c])]
-        rows = sorted(((c, A.levels[c], B.levels[c], A.levels[c] - B.levels[c]) for c in cats), key=lambda r: -r[3])
+        la, lb = A.levels.level, B.levels.level
+        cats = [c for c in la.index if c in lb.index and pd.notna(la[c]) and pd.notna(lb[c])]
+        rows = sorted(((c, la[c], lb[c], la[c] - lb[c]) for c in cats), key=lambda r: -r[3])
         ph = [r for r in rows if r[0] in PHASES or r[0] == "all moves"]
         if not ph:
             O.append("<p class='muted'>No phase has a level for both players (flat across the bands).</p>")
         O.append(Report.finding("By phase", "Lichess rapid level whose loss per move matches each of you (same bands "
                                 "for both; rough, ±100).", "info",
                                 Report.table(["", esc(A.name), esc(B.name), f"{esc(A.name)} − {esc(B.name)}"],
-                                             [[esc(c), f"{a:.0f}", f"{b:.0f}", Report.level_chip(d, f"{d:+.0f}")]
+                                             [[esc(plain_title(c)), f"{a:.0f}", f"{b:.0f}", Report.level_chip(d, f"{d:+.0f}")]
                                               for c, a, b, d in ph])))
         O.append(Report.finding("By kind of position", "Sorted from your biggest edge to theirs.", "info",
                                 Report.table(["kind of position", esc(A.name), esc(B.name), "difference"],
-                                             [[esc(c), f"{a:.0f}", f"{b:.0f}", Report.level_chip(d, f"{d:+.0f}")]
+                                             [[esc(plain_title(c)), f"{a:.0f}", f"{b:.0f}", Report.level_chip(d, f"{d:+.0f}")]
                                               for c, a, b, d in rows if c not in PHASES]), open_=False))
     else:
         O.append("<p>Run the multi-band stage (17) for both players to compare levels.</p>")

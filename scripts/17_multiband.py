@@ -37,44 +37,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np
 import pandas as pd
 
+from coach.bands import band_name, band_ranges, resolve_sets, settings
 from coach.categories import annotate, categories
-from coach.config import data_dir, data_root, load_config, resolve
+from coach.config import data_dir, load_config, resolve
 from coach.mine import ParquetSink, _int, extract_positions, is_rapid
 from coach.pgn_stream import iter_raw_games
 from coach.results import load_analyzed
 from coach.runner import engine_pass
 
-MB = {"bands": [[1600, 1800], [1800, 2000], [2200, 2400], [2400, 3000]], "per_game": 3, "target": 4000,
-      "boot": 300, "min_moves": 150}
 METRICS = {"error rate": "err", "blunder rate": "blunder", "loss per 100 moves": "wp_loss"}
-
-
-def band_name(lo):
-    return f"band_{lo}"
-
-
-def own_range(cfg):
-    pc = cfg["population"]
-    return pc["rating_center"] - pc["rating_halfwidth"], pc["rating_center"] + pc["rating_halfwidth"]
-
-
-def resolve_sets(cfg, mb):
-    """[(dataset name, (lo, hi))] for every band + your own peer band. A range that has a full peer set
-    (data/population_<lo>_<hi>, e.g. another player's peers) uses it instead of mining a band sample."""
-    ranges = {tuple(b) for b in mb["bands"]} | {own_range(cfg)}
-    out = []
-    for lo, hi in sorted(ranges):
-        pop = f"population_{lo}_{hi}"
-        if (lo, hi) == own_range(cfg) or any((data_root(cfg) / pop / "engine").glob("part-*.parquet")):
-            out.append(("population" if (lo, hi) == own_range(cfg) else pop, (lo, hi)))
-        else:
-            out.append((band_name(lo), (lo, hi)))
-    return out
-
-
-def band_ranges(cfg, mb):
-    """Bands that need their own mined sample (no full peer set covers them)."""
-    return [r for n, r in resolve_sets(cfg, mb) if n.startswith("band_")]
 
 
 # ---------------------------------------------------------------- 1. mine
@@ -175,7 +146,8 @@ def analyse(cfg, mb):
         bands.append((name, rng_, d))
     bands.sort(key=lambda t: t[1][0])
     if len(bands) < 3:
-        sys.exit("need >= 3 bands with engine results (run the engine stage)")
+        print("need >= 3 bands with engine results for the multi-band fit; skipped (17b/23/24 work without it)")
+        return
     me = load_set(cfg, "player")
     me = me[me.mover_rating >= cfg["player"]["min_player_rating"]].reset_index(drop=True)
     names = list(categories(me).keys())
@@ -253,13 +225,16 @@ def main() -> None:
     ap.add_argument("--target", type=int, default=None, help="positions per band (default multiband.target)")
     args = ap.parse_args()
     cfg = load_config(args.config)
-    mb = {**MB, **cfg.get("multiband", {})}
+    mb = settings(cfg)
     if args.target:
         mb["target"] = args.target
     if args.stage in ("mine", "all"):
         mine(cfg, mb)
     if args.stage in ("engine", "all"):
         for lo, _ in band_ranges(cfg, mb):
+            if not (data_dir(cfg, band_name(lo)) / "positions_engine.parquet").exists():
+                print(f"  band {lo}: no positions mined (none in the dump?), skipped")
+                continue
             engine_pass(cfg, band_name(lo), workers=args.workers)
     if args.stage in ("fit", "all"):
         analyse(cfg, mb)

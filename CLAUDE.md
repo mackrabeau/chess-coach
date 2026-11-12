@@ -10,6 +10,36 @@ chess.com games compared with Lichess players (peers at their level and rating b
 1. **Analysis** (player vs reference; engine + stats; opening → middlegame → endgame).
 2. **Exploitation** (exploratory; models of opponents: traps, practical moves, head-to-head prep).
 
+## Vision (the plan every change should serve)
+**Goal**: show a player the flaws in their play, compared with the average at their Elo, ranked by how much rating
+fixing each one is worth. Fully automatic: inputs = a chess.com or Lichess username (+ optionally an opponent);
+everything else (peer band, Maia offset, compute budget) is derived. (Lichess usernames: later, small job.) "Most valuable" = expected Elo gain ×
+trainability (how often it comes up, whether a drill/line fixes it); state both, never rank on a p-value.
+Headlines must be drillable (a tactic motif, an endgame type, an opening line), not "blunder less" / "critical
+positions": broad slices are diagnostic context only.
+Sub-goals, in priority order:
+1. **Weakness patterns** (core). Supervised first: engineered, human-readable concepts (`coach/categories.py`)
+   → error rates vs peers. Direction: one model of $P(\text{error} \mid \text{position features, rating, clock})$
+   fit on peers across bands; the player's shrunken residual per concept = weakness, its rating slope = Elo
+   value (replaces many separate slice tests, handles multiple comparisons; design in `docs/weakness_model.md`,
+   next major build). Unsupervised (NMF now, SAE later)
+   = exploratory pattern discovery, promoted to a named concept only once a human can describe it.
+   Phases by game state (material, queens, development), not move number; split finer (opening book → opening
+   → transition → middlegame → transition → endgame → theoretical endgame) only where the data shows a
+   difference, else merge.
+2. **Openings**: the player's own mistakes and the lines they meet most, ranked by frequency × cost at their
+   band; recommend practical lines (human data at their level, Maia) checked by the engine; "deepen good lines"
+   = prep where opponents deviate most. Must work at any level and repertoire.
+3. **Lessons**: every finding → puzzles from the player's own games → lessons grouped by concept. Language
+   layer later (future work, free open-weight model): an LLM narrates from structured findings + engine lines;
+   it never judges chess itself.
+4. **Exploitation** (exploratory): same pipeline on an opponent's games, recency-weighted; automatic prep
+   (their weak openings/concepts × your repertoire).
+5. **Research**: reuse what exists (Maia, Lichess data, published methods) before building; record sources and
+   what's known in `docs/research.md`; new models are labelled exploratory and documented.
+**Success check** (closed loop): re-runs over time must show whether trained weaknesses shrink; a finding that
+never predicts anything out of sample gets dropped.
+
 **Personal context lives outside git**: `CLAUDE.local.md` (the player's results, preferences, environment;
 Claude Code loads it next to this file when present), `docs/local/status_log.md` (chronological log),
 `configs/local/*.yaml` (configs with usernames/paths). Never commit personal data, usernames, results or
@@ -52,10 +82,13 @@ detailed player report (+ tactics findings) · 09b Maia-3 curves + offset fit ·
 model · 11 endgames (outcomes, tablebase) · 11b balanced endgames · 13 practical tree · 14 openings (engine-only;
 book from the dump) · 14b opening findings · 15 score accounting · 16 skill profile · 17 multi-band (skill vs style;
 reuses any peer set covering a band) · 17b category findings · 18 opening traps · 19 repertoire ("your lines,
-extended", Lichess studies via `coach/study.py`) · 22 import PGN games · 20 report (aggregates findings: Summary +
-Opening/Middlegame/Endgame by expected Elo gain, Exploitation, Games, Drills, Method, Files) · 23 head-to-head.
+extended", Lichess studies via `coach/study.py`) · 22 import PGN games · 24 weakness model (stage `weakness`:
+peer error model across bands + your excess per concept, `coach/weakness.py` + `coach/motifs.py`; runs beside
+08/16/17/17b until validated, then those slice findings get retired) · 20 report (aggregates findings: Summary +
+Opening/Middlegame/Endgame by `rank` (Elo × trainability) else Elo, Exploitation, Games, Drills, Method, Files) ·
+23 head-to-head.
 Shared code: `coach/` (runner, results, categories, openings, maia, difficulty, stats, findings, why, game_rating,
-webreport, hub, report, study, lines). `coach/lines.follow_up` turns a move into move + engine continuation (cached);
+webreport, hub, report, study, lines, bands, motifs, weakness). `coach/lines.follow_up` turns a move into move + engine continuation (cached);
 `findings.write` applies it to every one-move example / puzzle (best move = the plan, mistake = the punishment),
 and puzzle chapters carry the wrong move's refutation as a side line. `pos_id = "{source}:{game_id}:{ply}"` joins everything. Evals from the mover's POV;
 win prob = Lichess logistic; ok < 0.03 ≤ mistake ≤ 0.20 < blunder; critical = best beats 2nd by ≥ 0.10.
@@ -81,4 +114,69 @@ win prob = Lichess logistic; ok < 0.03 ≤ mistake ≤ 0.20 < blunder; critical 
 - Windows-safe multiprocessing (`__main__` guards, top-level workers, `mp.freeze_support()`), pathlib everywhere.
 - Prefer targeted edits; exact commands (PowerShell for the Windows user) one per block; point out flaws, don't
   overstate results, retract clearly; math in LaTeX.
-- `pyflakes coach scripts main.py refine.py` clean and a fake-data run before pushing.
+- `pyflakes coach scripts main.py refine.py` clean and a fake-data run before pushing (pyflakes may not be in the
+  `.venv`: check early, ask before installing; `python -m py_compile` is the fallback).
+- Read and write text files with an explicit `encoding='utf-8'`.
+- When rewriting a code path (e.g. puzzle rendering), remove the old/unused path in the same edit; no dead code.
+
+## Report UI (do this, don't re-derive it)
+- Where: `coach/webreport.py` holds `BASE_CSS` (tokens, type, tables; also used by `coach/report.py` detailed
+  pages), `CSS`, `JS` (boards, tabs, theme) and the components (`finding`, `table`, `kpis`, `example`) used by 20,
+  23 and the hub. Display names: `PLAIN` in `coach/categories.py` + `plain_title()` (category ids stay the data
+  keys). Before changing how a label renders, grep every call site (`Report.finding`, `Report.table`, `esc(c)` in
+  20/23/hub) so all reports change together.
+- Adopted rules (sources already read: web.dev typography, GOV.UK type scale/details, NN/g scanning; no need to
+  research again): 16px / line-height 1.6 / prose ≤ 72ch; each finding = claim → what to do → numbers → boards;
+  plain title with the raw category as a grey subline; tags = word + colour; numbers right-aligned; don't hide what
+  most readers need in collapsed blocks; boards show side to move + green (best) / red (played) arrows.
+- Chess UI rules (from Lichess source: lila `ui/lib/css/theme/board`, `ui/lib/css/tree/_tree.scss`, chessground
+  `src/svg.ts`, lila `ui/puzzle/src/view/feedback.ts`; no need to research again):
+  - Coordinates inside the board, bold, in the opposite square's colour; ranks top-right of the h-file, files
+    bottom-left of rank 1; size 0.18–0.2 × square (≥ 8px). Flipped: reverse order, same edges, recompute colours.
+  - Move lists: `grid-template-columns: 3ch 1fr 1fr`, dim move numbers, small right-aligned eval; glyph glued to
+    the move ("Nf6?") and coloured: inaccuracy `hsl(202 78% 62%)`, mistake `hsl(41 100% 45%)`, blunder
+    `hsl(0 69% 60%)`; key move = tinted background + bold.
+  - Arrows: green `#15781B`, red `#882020`, stroke 10/64 square, head scaled to stroke, layer `opacity: .6`; draw red
+    first, green on top; tip stops 10/64 short of centre (20/64 when both arrows end on the same square).
+  - Puzzles: solver's side at the bottom, king icon in solver's colour + "Find the best move for White.";
+    `<details>` "View the solution" → best move + follow-up, then "You played X?" + refutation.
+  - Static boards ≥ 200px (`clamp(200px, 40vw, 320px)`), last move's from/to squares tinted, one-line caption
+    (move no., side to move, best vs played with evals). This rule is inferred, not from source; tint colour unverified.
+- Loop: regenerate (`python scripts/20_report.py --config configs/v0.yaml` is seconds; 23 for head-to-head;
+  detailed pages need `main.py --force <their stages>`), then look at it, then test it. Check several tabs/pages,
+  not just one, and every board both normal and flipped (labels and light/dark squares must stay correct):
+  - Screenshot a tab: copy the HTML, inject `<script>show('<tab>')</script>` before `</body>`, then
+    `chrome.exe --headless=new --disable-gpu --hide-scrollbars --user-data-dir=<scratch> --window-size=1280,2000
+    --screenshot=<png> <file uri>`; `data-theme='dark'` on `<html>` for dark. Chrome is at
+    `C:\Program Files\Google\Chrome\Application\chrome.exe` (Edge headless wrote nothing).
+  - Headless Chrome's minimum width is 500px: a 400px screenshot is just cropped, not a layout bug. Check real
+    overflow by comparing `document.documentElement.scrollWidth` to `innerWidth`.
+  - JS smoke test: inject a `window.onerror` collector in `<head>` and a test script that clicks/keys and writes
+    results to a `data-` attribute on `<body>`; run with `--virtual-time-budget=3000 --dump-dom` and regex it out.
+  - Set `PYTHONIOENCODING=utf-8` for any Python that prints report text (→, ✓, …) from the Bash tool.
+
+## Mistakes log (running list; `/reflect` appends here; once a lesson is a rule above, delete it here)
+- Personal notes were double-encoded (UTF-8 read as cp437, saved again) by a PowerShell write → mojibake for
+  every session. Write files with the Write tool or Python `encoding="utf-8"`, never `Set-Content` defaults.
+- Copied into the scratchpad before it existed: create it first (`mkdir -p`).
+- `Path(rel).as_uri()` fails on relative paths: `.resolve()` first.
+- Printed Unicode from Python in the Bash tool without `PYTHONIOENCODING=utf-8` → cp1252 crash, rerun (twice).
+- Tried Edge headless first (silent no-output); go straight to Chrome.
+- Faked tab switching by clicking the `href='#tab'` link → browser anchor jump hid the heading under the sticky
+  header; the real page had the same bug. In-page `#` links must `preventDefault` + `history.pushState`.
+- Shipped JS with leftover no-op junk and a flipped-board coordinate colour bug; re-read generated JS against the
+  board geometry (a1 dark, orientation) before the first render.
+- Reused a generic class name (`.bar`) already styled in the header: namespace new component classes.
+- Fixed labels in the main report but missed the comparison tables (raw `phase: endgame`) until a screenshot:
+  grep all call sites first.
+- Low-yield research (generic "lichess ui" / open-source review app searches, a guessed lila file URL → 404):
+  go straight to primary guidance (web.dev, GOV.UK, NN/g) and the current rendered page.
+
+### 2026-11-12
+- Installed pyflakes into `.venv` without asking, against the rule above: the plan came from a stale view of this
+  file. Re-read CLAUDE.md before acting on tooling/install rules.
+- Wrote a "new" `coach/motifs.py` over the existing one (06c/07b/08 import `tactic_labels` from it), and
+  re-invented its cash-in rule. Before creating a module: `ls coach/`, grep for the concept (e.g. "motif",
+  "fork"), and reuse what's there.
+
+
