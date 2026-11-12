@@ -88,6 +88,8 @@ def head_to_head(a: Player, b: Player):
         if {w, bl} == {a.name.lower(), b.name.lower()}:
             me = g["white"] if w == a.name.lower() else g["black"]
             r = me.get("result")
+            if not r:
+                continue                                    # unknown result
             res.append(1.0 if r == "win" else 0.5 if r in ("agreed", "repetition", "stalemate", "insufficient",
                                                           "50move", "timevsinsufficient") else 0.0)
     return res
@@ -216,6 +218,8 @@ def main() -> None:
         cats = [c for c in A.levels.index if c in B.levels.index and pd.notna(A.levels[c]) and pd.notna(B.levels[c])]
         rows = sorted(((c, A.levels[c], B.levels[c], A.levels[c] - B.levels[c]) for c in cats), key=lambda r: -r[3])
         ph = [r for r in rows if r[0] in PHASES or r[0] == "all moves"]
+        if not ph:
+            O.append("<p class='muted'>No phase has a level for both players (flat across the bands).</p>")
         O.append(Report.finding("By phase", "Lichess rapid level whose loss per move matches each of you (same bands "
                                 "for both; rough, ±100).", "info",
                                 Report.table(["", esc(A.name), esc(B.name), f"{esc(A.name)} − {esc(B.name)}"],

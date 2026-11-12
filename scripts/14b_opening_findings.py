@@ -67,12 +67,13 @@ def main() -> None:
     fc = {**OF, **cfg.get("opening_findings", {})}
     cmp_min = cfg["player"]["min_player_rating"]
     O = data_dir(cfg, "openings")
-    if not (O / "peer_out.parquet").exists():
+    if not (O / "report_items.json").exists():
         sys.exit("run 14_openings.py first")
     tree, outs = player_tree(cfg, oc)
     E = opening_engine(cfg)
     vals_of = lambda e: (E.get("tree:" + e) or (None, None))[1]
-    peers = pd.read_parquet(O / "peer_out.parquet")
+    peers = (pd.read_parquet(O / "peer_out.parquet") if (O / "peer_out.parquet").exists()
+             else pd.DataFrame(columns=["color", "fen", "result", "elo"]))      # quick mode: no peer baseline
     peers["wp"] = [max(E[f"peer:{i}"][1].values()) if f"peer:{i}" in E else np.nan for i in range(len(peers))]
     outs["wp"] = [max(E["out:" + g][1].values()) if "out:" + g in E else np.nan for g in outs.game_id]
     ro = outs[outs.rating >= cmp_min]
