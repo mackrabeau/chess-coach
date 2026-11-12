@@ -6,8 +6,8 @@ For the top positions of every atom (and all mistakes as a baseline):
   |dmat|>=2  share with a gap of 2+ pawns (large for moves that lose only 0.03-0.20 win prob)
 Run after 06; compare --raw (02 lines) with the default (settled lines from 03).
 
-    python scripts/06b_check_line_ends.py --config configs/v0.yaml
-    python scripts/06b_check_line_ends.py --config configs/v0.yaml --raw
+    python scripts/diagnostics/06b_check_line_ends.py --config configs/v0.yaml
+    python scripts/diagnostics/06b_check_line_ends.py --config configs/v0.yaml --raw
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import chess
 import numpy as np

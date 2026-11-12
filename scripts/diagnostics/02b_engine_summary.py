@@ -3,7 +3,7 @@
 This is also the rating-band calibration check: if the player's loss profile is far
 from the population's, shift population.rating_center and re-mine.
 
-    python scripts/02b_engine_summary.py --config configs/v0.yaml
+    python scripts/diagnostics/02b_engine_summary.py --config configs/v0.yaml
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pandas as pd
 

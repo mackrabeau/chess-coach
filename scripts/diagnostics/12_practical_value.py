@@ -16,20 +16,19 @@ is the highest-EV candidate; we report how often it differs from Stockfish's bes
 expected gain and its objective cost, with example positions. Validation: for played moves
 whose actual reply is known (09d), does predicted "trap value" EV - V* match what happened?
 
-    python scripts/12_practical_value.py --config configs/v0.yaml --n 2000
+    python scripts/diagnostics/12_practical_value.py --config configs/v0.yaml --n 2000
 
 Output: data/<set>/practical.parquet, data/player/practical_report.html
 """
 from __future__ import annotations
 
 import argparse
-import html
 import multiprocessing as mp
 import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import chess
 import numpy as np

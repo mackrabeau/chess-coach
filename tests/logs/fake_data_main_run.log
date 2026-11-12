@@ -1,0 +1,253 @@
+-- fetch: up to date
+-- mine: up to date
+-- results: skipped (--offline)
+-- syzygy: skipped (--offline)
+
+== engine-player (resumable (always invoked; no-op when done)) :: /home/user/chess-coach/scripts/02_engine_lines.py --config tests/local.yaml --set player
+[player] 4,292 positions, 4,292 already done, 0 to go; 2 workers @ 20,000 nodes
+   engine-player done in 0.0 min
+
+== engine-population (resumable (always invoked; no-op when done)) :: /home/user/chess-coach/scripts/02_engine_lines.py --config tests/local.yaml --set population
+[population] 2,360 positions, 2,360 already done, 0 to go; 2 workers @ 20,000 nodes
+   engine-population done in 0.0 min
+
+== settle-player (resumable (always invoked; no-op when done)) :: /home/user/chess-coach/scripts/03_settle_lines.py --config tests/local.yaml --set player
+4,292 positions, 4,292 already settled, 0 to go; 2 workers @ 5,000 nodes
+
+4,292 positions settled
+  best   extended 37.7%, mean +1.3 plies | trigger: already quiet 60%, tactical 32%, in_check 8%, only_move 0%, few_moves 0% | end: quiet 90%, game_over 7%, cap 2%, short 1%
+  played extended 36.0%, mean +1.3 plies | trigger: already quiet 62%, tactical 30%, in_check 8%, few_moves 0%, only_move 0% | end: quiet 90%, game_over 7%, cap 3%, short 1%
+  alt    extended 37.2%, mean +1.3 plies | trigger: already quiet 61%, tactical 30%, in_check 9%, few_moves 0%, only_move 0% | end: quiet 90%, game_over 7%, cap 2%, short 0%
+   settle-player done in 0.1 min
+
+== settle-population (resumable (always invoked; no-op when done)) :: /home/user/chess-coach/scripts/03_settle_lines.py --config tests/local.yaml --set population
+2,360 positions, 2,360 already settled, 0 to go; 2 workers @ 5,000 nodes
+
+2,360 positions settled
+  best   extended 38.8%, mean +1.4 plies | trigger: already quiet 57%, tactical 34%, in_check 9%, only_move 0%, few_moves 0% | end: quiet 87%, game_over 9%, cap 2%, short 2%
+  played extended 38.0%, mean +1.3 plies | trigger: already quiet 59%, tactical 32%, in_check 9%, only_move 0%, few_moves 0% | end: quiet 88%, game_over 9%, cap 2%, short 1%
+  alt    extended 37.5%, mean +1.3 plies | trigger: already quiet 59%, tactical 30%, in_check 10%, only_move 0%, few_moves 0% | end: quiet 89%, game_over 9%, cap 2%, short 0%
+   settle-population done in 0.1 min
+
+== deep-player (resumable (always invoked; no-op when done)) :: /home/user/chess-coach/scripts/06c_deepen_tactics.py --config tests/local.yaml --set player
+282 blunders + tactical mistakes, 39 with no material swing; 52 already deepened, 13 to go; +20 plies @ 5,000 nodes, 2 workers
+  3/13  1.64 pos/s  ETA 0 min
+  6/13  3.12 pos/s  ETA 0 min
+  9/13  2.63 pos/s  ETA 0 min
+  12/13  3.30 pos/s  ETA 0 min
+  13/13  3.27 pos/s  ETA 0 min
+done in 0.1 min -> /home/user/chess-coach/tests/data/player/engine_deep
+   deep-player done in 0.2 min
+
+== deep-population (resumable (always invoked; no-op when done)) :: /home/user/chess-coach/scripts/06c_deepen_tactics.py --config tests/local.yaml --set population
+155 blunders + tactical mistakes, 32 with no material swing; 36 already deepened, 12 to go; +20 plies @ 5,000 nodes, 2 workers
+  3/12  1.64 pos/s  ETA 0 min
+  6/12  3.06 pos/s  ETA 0 min
+  9/12  2.52 pos/s  ETA 0 min
+  12/12  3.35 pos/s  ETA 0 min
+done in 0.1 min -> /home/user/chess-coach/tests/data/population/engine_deep
+   deep-population done in 0.1 min
+-- deltas-player: up to date
+-- deltas-population: up to date
+-- ideas: up to date
+
+== maia (resumable (always invoked; no-op when done)) :: /home/user/chess-coach/scripts/09b_maia_difficulty.py --config tests/local.yaml --set both
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Maia-3 23m on cpu (amp=False), 16 positions x 8 Elos per pass
+[player] 4,292 positions, 4,292 done, 0 to go; 8 Elo values 1100-2500
+[population] 2,360 positions, 2,360 done, 0 to go; 8 Elo values 1100-2500
+
+best-fit Elo on peers (validation: should track their real Lichess rating)
+  real 2000-2049: mean 2023, best fit 1100  (n 569)
+  real 2050-2099: mean 2074, best fit 1100  (n 669)
+  real 2100-2149: mean 2124, best fit 1100  (n 640)
+  real 2150-2200: mean 2175, best fit 1100  (n 482)
+  all peers: mean 2096, best fit 1100
+
+you: best-fit Lichess-scale Elo 1100  [90% 1100, 1100] (at the grid edge: widen maia.grid)  (chess.com median 1724; config maia.player_elo 2125)
+you, game by game: Maia Elo = chess.com rating + -300  [90% -300, -300]  (config maia.player_offset 125); at your latest rating ~1925 that is ~1625
+you, rating-dependent: Maia Elo = r + -300 + 0.50 (r - 1800)  [c0 -300..-300, slope 0.35..0.50]  (1000 -> 300, 1400 -> 900, 1800 -> 1500, 1900 -> 1650); set maia.player_offset / player_offset_slope from this
+  check per rating band (best fit vs mapped):
+    chess.com 1500-1749: median 1627, best fit 1100, mapped 1240  (89 games)
+    chess.com 1750-1849: median 1803, best fit 1100, mapped 1504  (35 games)
+    chess.com 1850-2999: median 1896, best fit 1100, mapped 1644  (35 games)
+   maia done in 0.3 min
+-- anatomy: up to date
+-- opponent-model: up to date
+
+== tactics-report (stale) :: /home/user/chess-coach/scripts/07b_inspect_tactics.py --config tests/local.yaml
+155 peer blunders + tactical mistakes (26 classified via deep lines); categories:
+  allowed: winning capture              54  (35%)
+  allowed: remove defender              20  (13%)
+  missed: winning capture               19  (12%)
+  missed + allowed: winning capture     18  (12%)
+  missed: remove defender                7  (5%)
+  missed + allowed: remove defender      5  (3%)
+  allowed: other                         4  (3%)
+  no material swing: big positional drop     4  (3%)
+  allowed: fork                          4  (3%)
+  allowed: pin                           3  (2%)
+  missed: pin                            3  (2%)
+  missed: fork                           2  (1%)
+  no material swing: equal to lost       2  (1%)
+  missed: skewer                         2  (1%)
+  missed + allowed: skewer               2  (1%)
+  missed + allowed: discovered           1  (1%)
+  no material swing: back rank mate      1  (1%)
+  allowed: skewer                        1  (1%)
+  no material swing: mate                1  (1%)
+  missed + allowed: fork                 1  (1%)
+  missed: promotion                      1  (1%)
+wrote /home/user/chess-coach/tests/data/ideas/tactics_report.html
+   tactics-report done in 0.1 min
+-- ideas-report: up to date
+
+== player-report (stale) :: /home/user/chess-coach/scripts/08_player_report.py --config tests/local.yaml
+your positional mistakes encoded: 49; wrote /home/user/chess-coach/tests/data/player/player_report.html
+loss per 100 moves, you vs peers:
+  blunder     2.13 [1.78, 2.56]  vs  2.25
+  tactical    0.21 [0.15, 0.27]  vs  0.16
+  positional  0.23 [0.15, 0.29]  vs  0.25
+  decided     0.53 [0.46, 0.60]  vs  0.51
+  ok          0.26 [0.24, 0.29]  vs  0.27
+  unusable    0.00 [0.00, 0.00]  vs  0.00
+tactics (loss per 100 moves, you vs peers; peer n >= 10):
+  missed + allowed: winning capture   0.54 [0.32, 0.71] vs  0.35  1.52x  noise  n 19 (exp 14) / 18
+  missed: winning capture             0.33 [0.21, 0.55] vs  0.29  1.14x  noise  n 18 (exp 15) / 19
+  allowed: remove defender            0.20 [0.10, 0.31] vs  0.28  0.71x  noise  n 8 (exp 16) / 20
+  allowed: winning capture            0.76 [0.58, 0.93] vs  0.87  0.87x  noise  n 43 (exp 43) / 54
+no-material blunders by phase (per 100 moves, you vs peers):
+  opening     0.03 [0.01, 0.06] vs  0.01
+  middlegame  0.03 [0.00, 0.09] vs  0.04
+  endgame     0.00 [0.00, 0.00] vs  0.00
+error anatomy:
+  Allowed: how many moves until the material went (played line):
+    punished next move (ply 2)          1.58 [1.30, 1.82] vs  1.50  1.06x  within noise n 102 (exp 110) / 137
+    2-move combination (ply 3-4)        0.24 [0.15, 0.33] vs  0.25  0.97x  within noise n 27 (exp 30) / 37
+    deeper (ply 5+)                     0.24 [0.18, 0.30] vs  0.19  1.25x  within noise n 40 (exp 26) / 32
+    no material swing                   1.04 [0.81, 1.31] vs  1.25  0.83x  within noise n 155 (exp 160) / 199
+  Allowed: what kind of reply punished you:
+    punished by a capture               1.58 [1.30, 1.80] vs  1.48  1.07x  within noise n 118 (exp 120) / 149
+    punished by a check                 0.30 [0.17, 0.44] vs  0.29  1.05x  within noise n 28 (exp 25) / 31
+    punished by a quiet                 0.17 [0.09, 0.25] vs  0.16  1.03x  within noise n 23 (exp 21) / 26
+  Allowed: would a player at your level even consider that reply? (Maia):
+    reply off the radar (Maia < 5%)     0.07 [0.02, 0.15] vs  0.02  4.26x  too few      n 8 (exp 3) / 4
+    reply unlikely (5-20%)              0.10 [0.05, 0.16] vs  0.14  0.73x  within noise n 19 (exp 15) / 19
+    reply expected (>= 20%)             1.89 [1.65, 2.13] vs  1.78  1.06x  within noise n 142 (exp 147) / 183
+  Missed wins: how deep, and how it starts (best line):
+    missed win, 1 move (ply 1), starts with a capture  0.89 [0.66, 1.10] vs  0.57  1.56x  clear        n 50 (exp 34) / 42
+    missed win, 1 move (ply 1), starts with a check  0.08 [0.01, 0.15] vs  0.08  1.04x  within noise n 5 (exp 6) / 8
+    missed win, 2 moves (ply 2-3), starts with a capture  0.02 [0.01, 0.03] vs  0.11  0.17x  clear        n 5 (exp 9) / 11
+    missed win, 2 moves (ply 2-3), starts with a check  0.11 [0.03, 0.20] vs  0.10  1.01x  within noise n 4 (exp 6) / 8
+    missed win, 2 moves (ply 2-3), starts with a quiet  0.04 [0.00, 0.07] vs  0.10  0.37x  clear        n 4 (exp 9) / 11
+    missed win, deeper (ply 4+), starts with a capture  0.05 [0.00, 0.10] vs  0.06  0.83x  within noise n 3 (exp 6) / 8
+    missed win, deeper (ply 4+), starts with a check  0.03 [0.00, 0.05] vs  0.04  0.72x  too few      n 4 (exp 5) / 6
+    missed win, deeper (ply 4+), starts with a quiet  0.07 [0.01, 0.13] vs  0.09  0.86x  within noise n 7 (exp 7) / 9
+  think time (you, whole history):
+    < 10 s   moves  38%  error rate 17.1% [15.6%, 19.3%]  blunder rate  4.6% [4.0%, 5.5%]  share of error loss  35%
+    10-30 s  moves  62%  error rate 18.4% [17.2%, 20.2%]  blunder rate  5.2% [4.7%, 5.9%]  share of error loss  65%
+    30-90 s  moves   0%  error rate  0.0% [0.0%, 0.0%]  blunder rate  0.0% [0.0%, 0.0%]  share of error loss   0%
+    90 s +   moves   0%  error rate  0.0% [0.0%, 0.0%]  blunder rate  0.0% [0.0%, 0.0%]  share of error loss   0%
+progress over time (whole history, you vs yourself):
+  2025Q1:  20 games, chess.com 1525 (Maia 1650), loss/100 3.03 [2.33, 3.75], blunders 1.76, positional 0.32, errors hard 16.5% / easy 16.4%, best vs Maia +13.0%
+  2025Q2:  20 games, chess.com 1585 (Maia 1710), loss/100 3.31 [2.40, 4.28], blunders 2.15, positional 0.27, errors hard 18.6% / easy 17.7%, best vs Maia +10.0%
+  2025Q3:  20 games, chess.com 1639 (Maia 1764), loss/100 4.10 [3.10, 5.10], blunders 2.77, positional 0.28, errors hard 17.5% / easy 23.0%, best vs Maia +10.1%
+  2025Q4:  20 games, chess.com 1698 (Maia 1823), loss/100 3.62 [2.62, 4.69], blunders 2.39, positional 0.26, errors hard 17.1% / easy 18.4%, best vs Maia +8.6%
+  2026Q2:  20 games, chess.com 1808 (Maia 1933), loss/100 3.80 [2.92, 4.85], blunders 2.67, positional 0.18, errors hard 15.9% / easy 17.8%, best vs Maia +10.5%
+  2026Q3:  20 games, chess.com 1862 (Maia 1987), loss/100 2.62 [1.89, 3.28], blunders 1.60, positional 0.14, errors hard 13.5% / easy 9.9%, best vs Maia +13.2%
+  2026Q4:  20 games, chess.com 1922 (Maia 2047), loss/100 3.75 [3.15, 4.45], blunders 2.30, positional 0.33, errors hard 22.5% / easy 15.6%, best vs Maia +10.7%
+Maia difficulty:
+  best move found: you 46.1% vs Maia-expected 35.1% (+11.0% [+9.0%, +13.5%]); peers 45.8% vs 36.6%
+    Maia finds best    0%–20%: share  44%/ 42%  error rate 17.4% [14.7%, 19.6%] vs 17.8%  loss/100 1.17 vs 1.07  noise
+    Maia finds best   20%–40%: share  18%/ 18%  error rate 17.3% [14.1%, 20.3%] vs 16.6%  loss/100 0.58 vs 0.54  noise
+    Maia finds best   40%–60%: share  13%/ 14%  error rate 20.5% [16.2%, 25.2%] vs 15.5%  loss/100 0.40 vs 0.37  CLEAR
+    Maia finds best   60%–80%: share  10%/ 11%  error rate 12.1% [8.6%, 15.6%] vs 20.1%  loss/100 0.30 vs 0.56  CLEAR
+    Maia finds best  80%–100%: share  14%/ 15%  error rate 16.4% [13.3%, 19.1%] vs 15.4%  loss/100 0.64 vs 0.64  noise
+  surprising misses (Maia at your level finds the best move >= 50%), loss per 100 moves:
+    total 1.10 vs 1.42  (n 87 / 133)
+    missed + allowed: winning capture   0.33 [0.17, 0.50] vs  0.23  1.41x  within noise n 11 (exp 8) / 10
+    decided mistake                     0.17 [0.12, 0.23] vs  0.15  1.09x  within noise n 45 (exp 46) / 57
+    allowed: winning capture            0.16 [0.08, 0.29] vs  0.18  0.94x  within noise n 9 (exp 9) / 11
+    positional mistake                  0.02 [0.00, 0.03] vs  0.05  0.37x  clear        n 4 (exp 10) / 12
+    missed: winning capture             0.15 [0.07, 0.25] vs  0.21  0.71x  within noise n 7 (exp 10) / 12
+    allowed: remove defender            0.02 [0.00, 0.07] vs  0.17  0.15x  clear        n 1 (exp 8) / 10
+weaknesses (share of positional loss, you vs peers):
+  your development              6.4% [4.3%, 8.7%] vs  2.1%  3.13x  CLEAR  ↓your undeveloped minors
+  opponent's king safety        8.0% [5.7%, 10.9%] vs  5.7%  1.40x  CLEAR  ↓opponent's king center dist, ↑opponent's king zone attacks, ↓opponent's king shield
+  your king safety             10.0% [7.0%, 13.4%] vs  7.4%  1.35x  noise  ↑your king shield, ↓your king open files, ↑your king zone attacks
+  your pawn structure          12.6% [5.9%, 17.1%] vs 10.6%  1.19x  noise  ↑your pawns, ↓your pawn islands, ↓your isolated pawns
+  your trades                   6.1% [3.6%, 10.9%] vs  5.6%  1.11x  noise  ↓your knights, ↓your queens, ↓your rooks
+strengths (share of positional loss, you vs peers):
+  your loose pieces             2.0% [1.3%, 3.0%] vs  3.6%  0.56x  CLEAR  ↑your hanging pieces, ↑your attacked by lower
+  opponent's passed pawns       1.4% [0.7%, 2.0%] vs  2.3%  0.61x  CLEAR  ↓opponent's passed pawn advance, ↓opponent's passed pawns
+  opponent's loose pieces       0.6% [0.3%, 0.9%] vs  0.8%  0.67x  noise  ↑opponent's hanging pieces, ↑opponent's attacked by lower
+  opponent's pawn structure     6.1% [4.2%, 7.8%] vs  8.5%  0.72x  CLEAR  ↑opponent's doubled pawns, ↓opponent's pawns, ↑opponent's backward pawns
+  opponent's center & space     4.4% [3.5%, 5.3%] vs  5.6%  0.79x  CLEAR  ↑opponent's center control, ↑opponent's space
+   player-report done in 0.2 min
+-- endgames: up to date
+-- balanced-endgames: up to date
+-- openings: up to date
+-- score: up to date
+-- skill: up to date
+
+== multiband (resumable (always invoked; no-op when done)) :: /home/user/chess-coach/scripts/17_multiband.py --config tests/local.yaml
+mine: scanned 400 games; band 1980: 108 positions, band 2140: 78 positions
+[band_1980] 108 positions, 108 already done, 0 to go; 2 workers @ 20,000 nodes
+[band_2140] 78 positions, 78 already done, 0 to go; 2 workers @ 20,000 nodes
+bands: band_1980 (mean rating 2022, 108 moves), population (mean rating 2096, 2,360 moves), band_2140 (mean rating 2181, 78 moves)
+you: 1,897 moves in 70 games >= 1750
+
+=== error rate ===
+   category                                                bands (low -> high)  slope/100     you  your level (90% CI)
+   all moves                                                 11.1% 17.4% 12.8%      +1.67   15.9%  flat across ratings: style, no level
+   phase: middlegame                                          9.8% 17.3% 10.3%      +1.56   16.5%  flat across ratings: style, no level
+   phase: endgame                                             6.7% 13.9%  9.5%      +2.55   12.3%  flat across ratings: style, no level
+   eval: losing (< 0.2)                                       0.0% 10.6% 14.3%     +10.04    9.6%  Lichess ~2089 [2063, 2137]
+   eval: contested (0.2-0.8)                                 33.3% 31.8% 15.0%     -11.30   29.3%  Lichess ~2114 [2063, 2223]
+   eval: winning (> 0.8)                                      8.9% 15.1% 10.8%      +1.38   14.2%  flat across ratings: style, no level
+   not critical                                              10.7% 17.1% 13.5%      +2.35   15.5%  flat across ratings: style, no level
+   best move is a capture                                     9.4% 18.2% 13.6%      +3.62   17.9%  flat across ratings: style, no level
+   best move is quiet                                        11.6% 17.3% 11.8%      +0.64   14.7%  flat across ratings: style, no level
+   clock: 3 min +                                            12.2% 18.0% 13.3%      +1.07   17.4%  flat across ratings: style, no level
+   winning (> 0.8), clock 3 min +                            10.0% 15.3% 11.4%      +0.88   15.3%  flat across ratings: style, no level
+   middlegame, clock 3 min +                                 10.2% 17.5% 10.3%      +1.22   16.7%  flat across ratings: style, no level
+
+=== blunder rate ===
+   category                                                bands (low -> high)  slope/100     you  your level (90% CI)
+   all moves                                                  1.9%  4.7%  2.6%      +0.72    4.5%  flat across ratings: style, no level
+   phase: middlegame                                          3.3%  4.9%  2.6%      -0.10    5.5%  flat across ratings: style, no level
+   phase: endgame                                             0.0%  3.7%  0.0%      +0.47    3.2%  Lichess ~2050 [1798, 2465]
+   eval: losing (< 0.2)                                       0.0%  0.0%  0.0%      +0.00    0.0%  flat across ratings: style, no level
+   eval: contested (0.2-0.8)                                  4.2% 11.6%  0.0%      -2.37   10.1%  flat across ratings: style, no level
+   eval: winning (> 0.8)                                      2.2%  4.9%  5.4%      +2.03    5.6%  flat across ratings: style, no level
+   not critical                                               1.0%  3.9%  2.7%      +1.32    3.8%  flat across ratings: style, no level
+   best move is a capture                                     3.1%  6.7%  4.5%      +1.29    6.2%  flat across ratings: style, no level
+   best move is quiet                                         0.0%  4.0%  2.0%      +1.52    3.5%  Lichess ~2078 [1930, 2155]
+   clock: 3 min +                                             2.0%  4.9%  2.7%      +0.58    5.1%  flat across ratings: style, no level
+   winning (> 0.8), clock 3 min +                             2.5%  5.2%  5.7%      +2.01    6.4%  flat across ratings: style, no level
+   middlegame, clock 3 min +                                  3.4%  5.0%  2.6%      -0.21    5.4%  flat across ratings: style, no level
+
+=== loss per 100 moves ===
+   category                                                bands (low -> high)  slope/100     you  your level (90% CI)
+   all moves                                                   2.5   3.4   1.7      -0.35    3.29  flat across ratings: style, no level
+   phase: middlegame                                           3.2   3.6   1.6      -0.84    3.87  flat across ratings: style, no level
+   phase: endgame                                              0.8   2.6   1.1      +0.42    2.30  flat across ratings: style, no level
+   eval: losing (< 0.2)                                        0.4   1.0   1.0      +0.45    1.02  Lichess ~2108 [2043, 2172]
+   eval: contested (0.2-0.8)                                   5.8   6.3   1.5      -2.63    5.99  Lichess ~2100 [1921, 2191]
+   eval: winning (> 0.8)                                       2.6   3.8   2.3      -0.15    3.88  flat across ratings: style, no level
+   not critical                                                1.9   3.0   1.8      +0.10    2.94  flat across ratings: style, no level
+   best move is a capture                                      2.0   4.3   2.5      +0.62    4.46  flat across ratings: style, no level
+   best move is quiet                                          1.8   3.0   1.5      -0.07    2.53  flat across ratings: style, no level
+   clock: 3 min +                                              2.7   3.5   1.8      -0.51    3.67  flat across ratings: style, no level
+   winning (> 0.8), clock 3 min +                              2.8   4.0   2.4      -0.28    4.40  flat across ratings: style, no level
+   middlegame, clock 3 min +                                   3.3   3.6   1.6      -0.94    3.84  flat across ratings: style, no level
+
+slope/100 = change per +100 rating, in percentage points (rates) or loss units (negative = stronger players err less; skill-relevant if its CI excludes 0).
+your level = the band rating whose fitted value equals yours. Prefer contested rows (never resigning lowers your error rate in lost positions).
+   multiband done in 0.1 min
+
+== practical-tree (stale) :: /home/user/chess-coach/scripts/13_practical_tree.py --config tests/local.yaml
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+
+[player] 418 contested positions
+  candidates: 418/418  ETA 0 min

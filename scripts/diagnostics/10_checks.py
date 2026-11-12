@@ -9,7 +9,7 @@
 3. By phase: loss per 100 moves per phase x track, you (games >= min_player_rating) vs peers.
    Note: positions start at ply 20, so "opening" here only means moves 10-15.
 
-    python scripts/10_checks.py --config configs/v0.yaml
+    python scripts/diagnostics/10_checks.py --config configs/v0.yaml
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import numpy as np
 import pandas as pd

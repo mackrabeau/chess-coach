@@ -22,7 +22,6 @@ Output: stdout + data/player/endgame_report.html
 from __future__ import annotations
 
 import argparse
-import html
 import sys
 from pathlib import Path
 

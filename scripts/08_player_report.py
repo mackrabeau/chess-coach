@@ -654,8 +654,8 @@ def main() -> None:
     print("Maia difficulty:")
     for line in maia_lines:
         print("  " + line)
-    for title, ks in (("weaknesses", weak), ("strengths", strong)):
-        print(f"{title} (share of positional loss, you vs peers):")
+    for heading, ks in (("weaknesses", weak), ("strengths", strong)):
+        print(f"{heading} (share of positional loss, you vs peers):")
         for k in ks:
             v = "CLEAR" if is_clear(k) else "noise"
             print(f"  {model.name(k):28s} {rel_me[k]:5.1%} [{rel_lo[k]:.1%}, {rel_hi[k]:.1%}] vs "

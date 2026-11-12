@@ -14,7 +14,7 @@ endgame phase, plus the middlegame as a control:
 Positions with < fetch.min_clock_seconds (30 s) were never stored, so time scrambles
 below that aren't in either set.
 
-    python scripts/11c_endgame_clock.py --config configs/v0.yaml
+    python scripts/diagnostics/11c_endgame_clock.py --config configs/v0.yaml
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import chess
 import numpy as np

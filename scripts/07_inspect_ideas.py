@@ -55,9 +55,9 @@ def main() -> None:
         + (f"{model.k} hand-defined concept groups (feature group × side). "
            if is_concepts else
            f"K = {model.k} ideas, {n_stable} stable across split halves (cos ≥ {model.stable_cos}). ")
-        + f"Each idea is a pattern in how the position at the "
-        f"end of the engine's line differs from the end of the played line. ↑ = the best line "
-        f"ends with more of this than the played line, ↓ = less. Green arrow = best move, red = played.</p>",
+        + "Each idea is a pattern in how the position at the "
+        "end of the engine's line differs from the end of the played line. ↑ = the best line "
+        "ends with more of this than the played line, ↓ = less. Green arrow = best move, red = played.</p>",
         "<p class='muted'>Judge each idea by its boards, not its label: if most of the top positions "
         "share a recognizable idea, it's real.</p>",
     ]

@@ -6,28 +6,50 @@ import pandas as pd
 from .config import data_dir
 from .engine import LINES
 from .parts import read_parts
-
-FILES = {"population": "positions_engine.parquet", "player": "positions.parquet"}
+from .runner import position_file
 
 
 def load_analyzed(cfg: dict, which: str, drop_errors: bool = True,
-                  raw_lines: bool = False) -> pd.DataFrame:
+                  raw_lines: bool = False, refined: bool = True) -> pd.DataFrame:
     """Positions joined with engine results.
 
+    refined: where refine.py has re-searched a position deeper (data/<set>/engine_L<k>/),
+    the deepest result replaces the 02 one (all engine columns; `refine_level` says which).
+    Refine always treats player and peers with the same rule, so comparisons stay fair; pass
+    refined=False when the other side of a comparison was never refined (e.g. 17's bands).
     If quiesce.use is true and 03_settle_lines.py has run, best_line / played_line /
-    alt_line are replaced by the settled (extended) lines; the 02 originals stay in
-    *_line_raw. raw_lines=True skips this.
+    alt_line are replaced by the settled (extended) lines for unrefined positions (refined
+    ones keep their own, deeper lines); the 02 originals stay in *_line_raw.
+    raw_lines=True skips the settled lines.
     """
-    pos = pd.read_parquet(data_dir(cfg, which) / FILES[which])
+    pos = pd.read_parquet(data_dir(cfg, which) / position_file(which))
     eng = read_parts(data_dir(cfg, which, "engine"))
     if eng is None:
         raise FileNotFoundError(f"no engine results for '{which}' yet; run 02_engine_lines.py")
+    eng["refine_level"] = 0
+    if refined:
+        eng = _use_refined(cfg, which, eng)
     df = pos.merge(eng, on="pos_id", how="inner")
     if drop_errors:
         df = df[df.error.isna()].reset_index(drop=True)
     if not raw_lines and cfg.get("quiesce", {}).get("use", False):
         df = _use_settled(cfg, which, df)
     return df
+
+
+def _use_refined(cfg: dict, which: str, eng: pd.DataFrame) -> pd.DataFrame:
+    """Replace engine rows by the deepest successful refine result per position."""
+    base = data_dir(cfg, which)
+    levels = sorted(int(p.name[8:]) for p in base.glob("engine_L*") if p.name[8:].isdigit())
+    for k in levels:
+        r = read_parts(base / f"engine_L{k}")
+        if r is None:
+            continue
+        r = r[r.error.isna()].copy()
+        r["refine_level"] = k
+        eng = pd.concat([eng[~eng.pos_id.isin(r.pos_id)], r[eng.columns.intersection(r.columns)]],
+                        ignore_index=True)
+    return eng
 
 
 def _use_settled(cfg: dict, which: str, df: pd.DataFrame) -> pd.DataFrame:
@@ -44,6 +66,7 @@ def _use_settled(cfg: dict, which: str, df: pd.DataFrame) -> pd.DataFrame:
     bad = df.q_error.notna()
     if bad.any():
         print(f"note: {bad.sum()} '{which}' positions failed to settle; using their raw lines")
+    bad = bad | (df.refine_level > 0)       # refined positions keep their own (deeper) lines
     for L in LINES:
         df[f"{L}_line_raw"] = df[f"{L}_line"]
         df[f"{L}_line"] = df[f"{L}_line_q"].where(~bad, df[f"{L}_line_raw"])
