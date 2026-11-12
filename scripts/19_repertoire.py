@@ -332,7 +332,8 @@ def main() -> None:
                               "lead" if r.cost < 0.05 else "solid", elo_gain(r.cost * r.count / n_games),
                               "cost × times per game", None, [example(r.fen, [r.best], [r.move], r.line)],
                               {"theme": "opening lines", "puzzles": [{"fen": r.fen, "solution": [r.best],
-                                                                     "comment": f"Better than {san(r.fen, r.move)}."}]},
+                                                                     "comment": f"Better than {san(r.fen, r.move)}.",
+                                                                     "wrong": r.move}]},
                               "The repertoire study has the follow-ups.", "repertoire.html"))
     write_findings(cfg, "repertoire", fi)
     body = ("<h1>Your lines, extended</h1>"

@@ -45,7 +45,15 @@ def example(fen, best, played=None, note="", pos_id=None) -> dict:
     return {"fen": fen, "best": as_list(best), "played": as_list(played), "note": note, "pos_id": pos_id}
 
 
-def write(cfg, module: str, items: list[dict]) -> None:
+def write(cfg, module: str, items: list[dict], expand: bool = True) -> None:
+    """Save a module's findings. expand: one-move example lines / puzzle solutions get the engine's
+    follow-up (coach/lines.py, cached), so every opening finding shows the idea, not just a move."""
+    if expand:
+        try:
+            from .lines import expand_examples
+            expand_examples(cfg, items)
+        except Exception as e:                           # never lose findings over a follow-up failure
+            print(f"  (follow-up lines skipped: {e})")
     d = data_dir(cfg, "findings")
     for f in items:
         f["module"] = module
