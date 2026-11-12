@@ -55,6 +55,7 @@ def load(cfg, which):
     df["best_kind"] = ["capture" if b.is_capture(m) else ("check" if b.gives_check(m) else "quiet")
                        for b, m in zip(boards, bm)]
     df["pbest"] = p_best_own(cfg, df, which)
+    df["err"] = (df.label.isin(["mistake", "blunder"]) & ~df.played_is_best).to_numpy()
     return df
 
 
@@ -84,6 +85,15 @@ def categories(df):
         cats[f"endgame: {t}"] = df.etype == t
     cats["contested middlegame"] = (df.ph == "middlegame") & (wp >= 0.2) & (wp <= 0.8)
     cats["contested endgame"] = (df.ph == "endgame") & (wp >= 0.2) & (wp <= 0.8)
+    # clock confound: endgames come late, when your clock is low
+    slow = c >= 180
+    cats["endgame, clock 3 min +"] = (df.ph == "endgame") & slow
+    cats["rook endings, clock 3 min +"] = (df.etype == "rook endings") & slow
+    cats["minor-piece endings, clock 3 min +"] = (df.etype == "minor-piece endings") & slow
+    cats["contested endgame, clock 3 min +"] = (df.ph == "endgame") & (wp >= 0.2) & (wp <= 0.8) & slow
+    cats["winning (> 0.8), clock 3 min +"] = (wp > 0.8) & slow
+    cats["middlegame, clock < 3 min"] = (df.ph == "middlegame") & ~slow
+    cats["middlegame, clock 3 min +"] = (df.ph == "middlegame") & slow
     return {k: np.asarray(v, bool) for k, v in cats.items()}
 
 
@@ -113,6 +123,22 @@ def argbest(curve):
     return float(OFFSETS[k])
 
 
+def engine_ratio(me, pop, mm, mp, picks, g):
+    """(text, your rate, peer rate, ratio, lo, hi) of the engine error rate in a category."""
+    if mm.sum() < 100 or mp.sum() < 100:
+        return ("(too few recent moves)", np.nan, np.nan, np.nan, np.nan, np.nan)
+    n_g = g.max() + 1
+    mv, er = np.zeros(n_g), np.zeros(n_g)
+    np.add.at(mv, g[mm], 1)
+    np.add.at(er, g[mm], me.err.to_numpy()[mm])
+    r_me, r_pop = er.sum() / mv.sum(), pop.err.to_numpy()[mp].mean()
+    b = np.array([er[p].sum() / max(mv[p].sum(), 1) for p in picks]) / r_pop
+    lo, hi = np.percentile(b, [5, 95])
+    tag = " clear" if lo > 1 or hi < 1 else ""
+    return (f"{r_me:5.1%} / {r_pop:5.1%} = {r_me / r_pop:.2f} [{lo:.2f}, {hi:.2f}]{tag}", r_me, r_pop,
+            r_me / r_pop, lo, hi)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="configs/v0.yaml")
@@ -131,9 +157,15 @@ def main() -> None:
     c_me, c_pop = argbest(all_me.sum(0)), argbest(all_pop.sum(0))
     rng = np.random.default_rng(0)
     picks = [rng.integers(0, len(gm_ids), len(gm_ids)) for _ in range(args.boot)]
+    picks_r = [rng.integers(0, len(gm_ids), len(gm_ids)) for _ in range(args.boot)]
+    gr = gm
     print(f"you: {len(me):,} moves in {len(gm_ids):,} games (whole history); peers {len(pop):,} moves")
     print(f"overall offset vs expected level: you {c_me:+.0f} (0 = config offset is right), peers {c_pop:+.0f}")
-    print(f"\n{'category':44s} {'your moves':>10s} {'you':>6s} {'peers':>6s} {'relative level (90% CI)':>28s}")
+    recent = (me.mover_rating >= cfg["player"]["min_player_rating"]).to_numpy()
+    print(f"engine column: error rate (mistake/blunder), your games >= {cfg['player']['min_player_rating']} vs peers, "
+          f"ratio with 90% CI over games")
+    print(f"\n{'category':44s} {'your moves':>10s} {'you':>6s} {'peers':>6s} {'Maia relative level (90% CI)':>30s}"
+          f"   {'engine error rate you / peers':>30s}")
     out = []
     for name, mm in cats_me.items():
         mp = cats_pop[name]
@@ -148,9 +180,12 @@ def main() -> None:
         lo, hi = np.percentile(boots, [5, 95])
         tag = "clear" if lo > 0 or hi < 0 else ""
         edge = " (grid edge)" if max(abs(cx_me), abs(cx_pop)) >= OFFSETS[-1] - 10 else ""
-        print(f"{name:44s} {mm.sum():10,d} {cx_me:+6.0f} {cx_pop:+6.0f} {rel:+8.0f} [{lo:+5.0f}, {hi:+5.0f}] {tag}{edge}")
+        er = engine_ratio(me, pop, mm & recent, mp, picks_r, gr)
+        print(f"{name:44s} {mm.sum():10,d} {cx_me:+6.0f} {cx_pop:+6.0f} {rel:+8.0f} [{lo:+5.0f}, {hi:+5.0f}] "
+              f"{tag:5s}{edge}   {er[0]}")
         out.append({"category": name, "moves": int(mm.sum()), "c_you": cx_me, "c_peers": cx_pop,
-                    "relative": rel, "lo": lo, "hi": hi})
+                    "relative": rel, "lo": lo, "hi": hi, "err_you": er[1], "err_peers": er[2],
+                    "ratio": er[3], "ratio_lo": er[4], "ratio_hi": er[5]})
     pd.DataFrame(out).to_parquet(data_dir(cfg, "player") / "skill_profile.parquet", index=False)
     print("\nyou / peers = best-fit offset in that category (Elo above the expected level for each game);"
           "\nrelative = your offset minus your overall offset, minus the peers' category bias.")
