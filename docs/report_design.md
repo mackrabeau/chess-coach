@@ -58,8 +58,15 @@ Appendix           (method notes, every table in full)
 - Grouped by finding (e.g. "pressing, forcing move, < 3 min"). Each group holds at most 15, chosen for variety (different openings/structures), with recent games first.
 - Exploitation section: a few illustrative positions, not drills.
 
-## Open questions for Mack
+## Decisions (Mack, 2026-11-18)
 
-1. One HTML file with tabs, or one file per section?
-2. Drills per theme (several studies), or one study with the top 64?
-3. Should the summary give rating estimates (e.g. "your critical-position play ≈ Lichess 2050"), or only relative statements?
+1. **Format**: whatever looks and feels best; open to an interactive website (feasibility discussed:
+   v1 = one self-contained HTML with inline JS (tabs, collapsible findings, boards you can step through,
+   puzzle mode via chess.js), no server; v2 option = local web app (Streamlit/FastAPI over the parquet
+   files) for free exploration; hosted site not planned (private data, hosting cost)).
+2. **Drills**: several Lichess studies, one (or more) theme per study, many puzzles each.
+3. **Ratings**: include rating estimates (from the multi-band fits), relative statements as fallback.
+   Plus a **game rating** like chess.com's: per game, a rating for the game and for opening /
+   middlegame / endgame on a red → green scale (from per-phase loss mapped onto the band distributions
+   by quantile, plus the Maia best-fit Elo of the game's moves; per-game values are noisy, so show the
+   range and aggregate by month).

@@ -8,7 +8,8 @@ Work happens in levels; level k searches with engine.nodes x 4^k nodes (1M -> 4M
   1. priority positions, you AND peers with the same rule: mistakes/blunders, positions near the
      ok/mistake/blunder thresholds or the critical gap (labels that a deeper search might flip),
      and critical positions (puzzle candidates)
-  2. opening tree at openings.nodes x 4^k (14 keeps the deepest result per position)
+  2. opening tree at openings.nodes x 4^k and the repertoire (19) at repertoire.nodes x 4^k
+     (the opening cache keeps the deepest result per position)
   3. more multi-band data: multiband.target x (k + 1) positions per band (17 mines incrementally)
   4. every remaining position of yours and the peers'
 Deeper results land in data/<set>/engine_L<k>/ and replace the shallower ones when loading
@@ -71,6 +72,8 @@ def tasks(cfg, k, workers):
                                                    out_sub=level_dir(k), ids=priority_ids(cfg, w), deadline=d)))
     on = cfg.get("openings", {}).get("nodes", 300000) * 4 ** k
     out.append((f"L{k} opening tree @ {on:,} nodes", lambda d: run(["14_openings.py", "--nodes", str(on)])))
+    rn = cfg.get("repertoire", {}).get("nodes", 1000000) * 4 ** k
+    out.append((f"L{k} repertoire @ {rn:,} nodes", lambda d: run(["19_repertoire.py", "--nodes", str(rn)])))
     target = cfg.get("multiband", {}).get("target", 4000) * (k + 1)
     out.append((f"L{k} multi-band data to {target:,} positions per band",
                 lambda d: run(["17_multiband.py", "--stage", "mine", "--target", str(target)])
