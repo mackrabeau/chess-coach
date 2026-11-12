@@ -30,6 +30,22 @@ Ideas worth exploring that aren't built yet, roughly grouped. Each: what, why, h
   his moves for 20 rook/K+P endings). Peers have only ~12 sampled positions per game → you-only unless
   full peer endgames are re-mined (more engine time).
 
+### Repertoire extension: "your lines, extended" (Mack, 2026-11-17) — status: designed, not built
+- **Why**: in openings he plays a lot, a move can be fine and still not the best; and past the point
+  where he stops knowing theory he should know the follow-ups (essential at 2000+). Engine-only, so it
+  belongs in the main opening analysis (14), not the exploitation layer. Example: after 1.e4 e5
+  2.Nc3 Nc6 3.Bc4 Nf6 he played 4.f4 (−11.6; ...Nxe4 tricks); the right move (our 300k run: 4.d3, with
+  4.Nf3 0.8 behind) and then the right answer to each common Black reply.
+- **How**: roots = his-to-move positions he reaches often (recent games). His nodes: Stockfish best at
+  deep search (1M+, refine deepens), alternatives within ~2 points listed as "also fine", his usual
+  move with its cost even when small ("good, but X is better by 1.5"). Opponent nodes: replies covering
+  ~90% of the book mass at his opponents' band (option: the band he's aiming for, e.g. 2200), Maia when
+  the book is thin; frequent mistakes flagged with the punishment. Depth: to move ~15 or 3–4 of his moves
+  past the point where he leaves his usual moves; prune replies < 5%. Rank by frequency × improvement.
+- **Output**: report section with the trees + one Lichess study per opening (chapters with variations,
+  comments: "you usually play X (−1.2)", "40% of 2000s play Y here"), shared with the drills export.
+- **Cost**: a few thousand positions at 1M nodes (~1–2 h), resumable; reuses 14's book and engine cache.
+
 ### Smaller layer-1 follow-ups
 - **Critical × clock row**: add "critical, clock < 3 min" directly to 16 (currently only implied).
 - **Overthinking check**: on long thinks in easy positions, does he deviate from Maia's top move?
