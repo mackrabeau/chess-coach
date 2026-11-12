@@ -8,7 +8,7 @@ Answers three questions on real positions:
      often Maia's top move changes, over an Elo grid; self vs opponent Elo sensitivity.
   3. Speed on this machine (GPU if torch sees one).
 
-    python scripts/09a_maia_probe.py --config configs/v0.yaml --n 3000
+    python scripts/diagnostics/09a_maia_probe.py --config configs/v0.yaml --n 3000
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import numpy as np
 

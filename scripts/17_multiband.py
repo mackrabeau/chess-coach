@@ -55,16 +55,24 @@ def band_name(lo):
 
 # ---------------------------------------------------------------- 1. mine
 def mine(cfg, mb):
-    todo = [(lo, hi) for lo, hi in mb["bands"]
-            if not (data_dir(cfg, band_name(lo)) / "positions_engine.parquet").exists()]
+    """Mine until every band has multiband.target positions. Incremental: existing positions are
+    kept, their games skipped, so raising the target (refine.py does) just adds more."""
+    have, seen = {}, set()
+    for lo, _ in mb["bands"]:
+        f = data_dir(cfg, band_name(lo)) / "positions_engine.parquet"
+        old = pd.read_parquet(f) if f.exists() else None
+        have[lo] = old
+        if old is not None:
+            seen |= set(old.game_id)
+    todo = [(lo, hi) for lo, hi in mb["bands"] if have[lo] is None or len(have[lo]) < mb["target"]]
     if not todo:
-        print("mine: all bands already mined")
+        print("mine: all bands at target")
         return
     fcfg = cfg["filters"]
-    rng = random.Random(cfg["population"]["seed"])
-    sinks = {lo: ParquetSink(data_dir(cfg, band_name(lo)) / "positions_engine.parquet", flush_rows=5_000)
-             for lo, _ in todo}
-    count = {lo: 0 for lo, _ in todo}
+    rng = random.Random(cfg["population"]["seed"] + len(seen))
+    tmp = {lo: data_dir(cfg, band_name(lo)) / "positions_new.parquet.tmp" for lo, _ in todo}
+    sinks = {lo: ParquetSink(tmp[lo], flush_rows=5_000) for lo, _ in todo}
+    count = {lo: 0 if have[lo] is None else len(have[lo]) for lo, _ in todo}
     t0, n_seen = time.time(), 0
     for headers, text in iter_raw_games(resolve(cfg, cfg["paths"]["lichess_dump"])):
         n_seen += 1
@@ -80,6 +88,8 @@ def mine(cfg, mb):
         if band is None:
             continue
         gid = headers.get("Site", "").rstrip("/").split("/")[-1] or f"g{n_seen}"
+        if gid in seen:
+            continue
         rows = extract_positions(text, headers, source="lichess", game_id=gid, fcfg=fcfg,
                                  mover_ok=lambda _w: True, rng=rng, max_per_game=mb["per_game"])
         if rows:
@@ -87,15 +97,23 @@ def mine(cfg, mb):
             count[band] += len(rows)
         if all(count[lo] >= mb["target"] for lo, _ in todo):
             break
-    for s in sinks.values():
+    for lo, s in sinks.items():
         s.close()
+        f = data_dir(cfg, band_name(lo)) / "positions_engine.parquet"
+        new = pd.read_parquet(tmp[lo]) if tmp[lo].exists() and s.n else None
+        parts = [d for d in (have[lo], new) if d is not None]
+        if parts:
+            pd.concat(parts, ignore_index=True).to_parquet(f.with_suffix(".parquet.tmp2"), index=False)
+            f.with_suffix(".parquet.tmp2").replace(f)          # atomic: a kill never leaves a broken file
+        tmp[lo].unlink(missing_ok=True)
     print(f"mine: scanned {n_seen:,} games; " + ", ".join(f"band {lo}: {c:,} positions" for lo, c in count.items()))
 
 
 # ---------------------------------------------------------------- 3. fit
 def load_set(cfg, which):
     try:
-        df = load_analyzed(cfg, which, raw_lines=True)
+        # bands are never refined: compare everything at the base search depth
+        df = load_analyzed(cfg, which, raw_lines=True, refined=False)
     except FileNotFoundError:
         return None
     return annotate(df)
@@ -208,9 +226,12 @@ def main() -> None:
     ap.add_argument("--config", default="configs/v0.yaml")
     ap.add_argument("--stage", choices=["mine", "engine", "fit", "all"], default="all")
     ap.add_argument("--workers", type=int, default=None)
+    ap.add_argument("--target", type=int, default=None, help="positions per band (default multiband.target)")
     args = ap.parse_args()
     cfg = load_config(args.config)
     mb = {**MB, **cfg.get("multiband", {})}
+    if args.target:
+        mb["target"] = args.target
     if args.stage in ("mine", "all"):
         mine(cfg, mb)
     if args.stage in ("engine", "all"):

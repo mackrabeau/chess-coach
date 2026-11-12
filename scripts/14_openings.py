@@ -33,7 +33,6 @@ from __future__ import annotations
 import argparse
 import json
 import multiprocessing as mp
-import re
 import sys
 import time
 from collections import defaultdict
@@ -49,8 +48,8 @@ import pyarrow as pa
 from coach.config import data_dir, load_config, resolve
 from coach.engine import Analyzer
 from coach.mine import is_rapid, mover_score
-from coach.openings import band_labels, player_tree, san_tokens
-from coach.parts import done_ids, next_part_index, read_parts, write_part
+from coach.openings import band_labels, engine_dir_name, opening_engine, player_tree, san_tokens
+from coach.parts import done_ids, next_part_index, write_part
 from coach.pgn_stream import iter_raw_games
 from coach.report import page, position_card
 
@@ -147,7 +146,8 @@ def _eval(item):
 
 
 def run_engine(cfg, oc, items, workers):
-    part_dir = data_dir(cfg, "openings", "engine")
+    part_dir = data_dir(cfg, "openings", engine_dir_name(oc["nodes"]))
+    (part_dir / "nodes.txt").write_text(str(oc["nodes"]))
     done = done_ids(part_dir)
     todo = [it for it in items if it[0] not in done]
     print(f"  engine: {len(items) - len(todo):,} done, {len(todo):,} to go")
@@ -163,8 +163,7 @@ def run_engine(cfg, oc, items, workers):
                     idx, buf = idx + 1, []
                     el = time.time() - t0
                     print(f"    {i:,}/{len(todo):,}  ETA {el / i * (len(todo) - i) / 60:.0f} min", flush=True)
-    E = read_parts(part_dir)
-    return {} if E is None else {p: (b, json.loads(v)) for p, b, v in zip(E.pos_id, E.best, E["values"])}
+    return opening_engine(cfg)      # deepest search per position, across all node counts
 
 
 # ---------------------------------------------------------------- analysis helpers
@@ -217,9 +216,12 @@ def main() -> None:
     ap.add_argument("--config", default="configs/v0.yaml")
     ap.add_argument("--rebuild", action="store_true", help="redo the dump pass (stage 2)")
     ap.add_argument("--workers", type=int, default=None)
+    ap.add_argument("--nodes", type=int, default=None, help="search size (refine passes use more; deepest wins)")
     args = ap.parse_args()
     cfg = load_config(args.config)
     oc = {**OPEN, **cfg.get("openings", {})}
+    if args.nodes:
+        oc["nodes"] = args.nodes
     cmp_min = cfg["player"]["min_player_rating"]
     out = data_dir(cfg, "openings")
     labels = band_labels(oc["bands"])

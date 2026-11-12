@@ -1,0 +1,99 @@
+paths:
+  data_dir: tests/data
+  stockfish: /usr/games/stockfish
+  lichess_dump: tests/data/raw/fake.pgn.zst
+player:
+  username: bananaman987654321
+  time_class: rapid
+  rated_only: true
+  min_player_rating: 1750
+  fetch_min_rating: 0
+population:
+  rating_center: 2100
+  rating_halfwidth: 100
+  sae_target_positions: 1500
+  engine_target_positions: 1500
+  max_positions_per_game: 12
+  seed: 0
+filters:
+  rapid_min_est_seconds: 480
+  rapid_max_est_seconds: 1500
+  min_ply: 20
+  min_game_plies: 30
+  min_clock_seconds: 30
+  history_plies: 7
+engine:
+  nodes: 20000
+  workers: 2
+  hash_mb: 64
+  pv_plies: 6
+  extend_nodes: 5000
+  chunk_size: 10
+  ok_loss: 0.03
+  blunder_loss: 0.2
+  critical_gap: 0.1
+ideas:
+  method: concepts
+  n_atoms: 6
+  sweep:
+  - 4
+  - 6
+  min_norm: 0.5
+  stable_cos: 0.7
+  alpha_W: 0.0
+  alpha_H: 0.0
+  contested: [0.2, 0.8]
+  tactical_material: 2
+  seed: 0
+report:
+  top_positions: 10
+  player_top_ideas: 5
+  player_examples: 6
+  drills: 8
+  bootstrap: 50
+  prior_strength: 10
+  min_ratio: 1.25
+quiesce:
+  use: true
+  nodes: 5000
+  max_extra_plies: 8
+  forced_gap: 0.15
+  forced_max_legal: 2
+deep:
+  plies: 20
+  nodes: 5000
+
+maia:                    # Maia-3 (pip install git+https://github.com/CSSLab/maia3)
+  model: 23m             # 5m / 23m / 79m
+  player_elo: 2125
+  player_offset: 125
+  player_offset_slope: 0.0
+  surprise: 0.5
+  grid: [1100, 2500, 200]
+  batch: 16
+
+endgames:
+  syzygy_path: /tmp/claude-0/-home-user-chess-coach/bb1dbe94-70fd-5058-a21b-fc58e289a1dd/scratchpad/syzygy   # folder with the Syzygy 3-4-5 .rtbw + .rtbz files (11_endgames)
+
+practical:               # 12_practical_value.py (exploitation step 2)
+  contested: [0.2, 0.8]  # positions sampled: best-move win prob in this range
+  n: 20
+  delta: 0.05            # candidates within this much win prob of Stockfish's best
+  multipv: 5
+  nodes_root: 20000
+  nodes_reply: 10000
+  reply_mass: 0.9        # Maia replies listed until they cover this much probability
+  max_replies: 6
+openings:
+  nodes: 20000
+  peer_sample: 200
+traps:
+  nodes_root: 20000
+  nodes_reply: 10000
+  min_book: 5
+  min_err_mass: 0.05
+multiband:
+  bands: [[1980, 2060], [2140, 2230]]
+  target: 120
+  boot: 50
+  min_moves: 20

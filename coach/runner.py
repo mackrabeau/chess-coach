@@ -38,15 +38,25 @@ def _work(chunk: list[tuple[str, str, str]]) -> list[dict]:
     return out
 
 
+def level_dir(level: int) -> str:
+    """Engine output folder: level 0 = the base pass (02), level k = refine pass at 4^k x nodes."""
+    return "engine" if level == 0 else f"engine_L{level}"
+
+
 def engine_pass(cfg: dict, which: str, limit: int | None = None, workers: int | None = None,
-                ecfg_override: dict | None = None, out_sub: str = "engine") -> None:
-    """Stockfish every position of set `which` not yet in data/<which>/<out_sub>/ (resumable)."""
+                ecfg_override: dict | None = None, out_sub: str = "engine", ids=None,
+                deadline: float | None = None) -> bool:
+    """Stockfish every position of set `which` not yet in data/<which>/<out_sub>/ (resumable).
+    ids: only these pos_ids (refine passes). deadline: unix time to stop at (finished chunks
+    are kept). Returns True if everything requested is done."""
     ecfg = {**cfg["engine"], **(ecfg_override or {})}
     sf_path = str(resolve(cfg, cfg["paths"]["stockfish"]))
     workers = workers or ecfg["workers"]
     src = data_dir(cfg, which) / position_file(which)
     engine_dir = data_dir(cfg, which, out_sub)
     df = pd.read_parquet(src, columns=["pos_id", "fen", "move"])
+    if ids is not None:
+        df = df[df.pos_id.isin(set(ids))]
     if limit:
         df = df.head(limit)
     done = done_ids(engine_dir)
@@ -54,7 +64,7 @@ def engine_pass(cfg: dict, which: str, limit: int | None = None, workers: int | 
     print(f"[{which}] {len(df):,} positions, {len(done):,} already done, {len(todo):,} to go; "
           f"{workers} workers @ {ecfg['nodes']:,} nodes")
     if todo.empty:
-        return
+        return True
     if not Path(sf_path).is_file():
         sys.exit(f"Stockfish not found at {sf_path}\n"
                  "Set paths.stockfish in the config to the full path of the executable.")
@@ -66,6 +76,10 @@ def engine_pass(cfg: dict, which: str, limit: int | None = None, workers: int | 
     t0, n = time.time(), 0
     with mp.Pool(workers, initializer=_init_worker, initargs=(ecfg, sf_path)) as pool:
         for rows in pool.imap_unordered(_work, chunks):
+            if deadline is not None and time.time() > deadline:
+                print("  time budget reached; stopping (finished chunks are saved)")
+                pool.terminate()
+                return False
             write_part(engine_dir, idx, rows, RESULT_SCHEMA)
             idx += 1
             n += len(rows)
@@ -74,3 +88,4 @@ def engine_pass(cfg: dict, which: str, limit: int | None = None, workers: int | 
             print(f"  {n:,}/{len(items):,}  {n / el:.2f} pos/s  ETA {el / n * (len(items) - n) / 3600:.1f} h"
                   + (f"  ({errs} errors in last chunk)" if errs else ""), flush=True)
     print(f"done in {(time.time() - t0) / 3600:.2f} h -> {engine_dir}")
+    return True

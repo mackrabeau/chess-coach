@@ -1,12 +1,14 @@
 """Opening tree helpers shared by 14_openings and 18_opening_traps."""
 from __future__ import annotations
 
+import json
 import re
 
 import chess
 import pandas as pd
 
 from .config import data_dir
+from .parts import read_parts
 from .fetch_chesscom import iter_player_games
 from .mine import mover_score
 
@@ -78,3 +80,30 @@ def player_tree(cfg, oc):
         except ValueError:
             continue
     return pd.DataFrame(rows), pd.DataFrame(outs)
+
+
+def engine_dir_name(nodes: int) -> str:
+    """Opening engine cache per search size ("engine" = the original 300k-node pass)."""
+    return "engine" if nodes == 300000 else f"engine_{nodes}"
+
+
+def opening_engine(cfg) -> dict:
+    """pos_id -> (best, {move: wp}) from every opening engine cache; the deepest search wins."""
+    base = data_dir(cfg, "openings")
+    dirs = []
+    for p in base.glob("engine*"):
+        marker = p / "nodes.txt"                    # written by 14; the name is only a fallback
+        if marker.exists():
+            n = int(marker.read_text().strip())
+        elif p.name == "engine":
+            n = 300000
+        else:
+            n = int(p.name.split("_")[-1]) if p.name.split("_")[-1].isdigit() else None
+        if n:
+            dirs.append((n, p))
+    out = {}
+    for _, p in sorted(dirs):
+        E = read_parts(p)
+        if E is not None:
+            out.update({i: (b, json.loads(v)) for i, b, v in zip(E.pos_id, E.best, E["values"])})
+    return out

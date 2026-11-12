@@ -34,7 +34,7 @@ import pandas as pd
 
 from coach.config import data_dir, load_config
 from coach.difficulty import p_best_own
-from coach.endgame_features import FEATURES, READABLE, end_of, features, material_class
+from coach.endgame_features import READABLE, end_of, features, material_class
 from coach.handcrafted import phase
 from coach.report import page, position_card
 from coach.results import load_analyzed

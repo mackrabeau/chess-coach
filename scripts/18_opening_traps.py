@@ -27,7 +27,6 @@ Output: stdout + data/player/opening_traps.html + data/openings/traps.parquet
 from __future__ import annotations
 
 import argparse
-import json
 import multiprocessing as mp
 import sys
 import time
@@ -43,8 +42,7 @@ from coach.config import data_dir, load_config, resolve
 from coach.difficulty import player_maia_elo
 from coach.engine import Analyzer
 from coach.maia import Maia, maia_lists
-from coach.openings import band_labels, player_tree
-from coach.parts import read_parts
+from coach.openings import band_labels, opening_engine, player_tree
 from coach.report import page, position_card
 
 TRAPS = {"min_count": 2, "bad": 0.08, "min_err_mass": 0.15, "min_book": 30, "multipv": 5,
@@ -138,8 +136,7 @@ def main() -> None:
     print(f"your opponents (games >= {cmp_min}): ~{opp_elo:.0f} on the Lichess/Maia scale -> book band {opp_band}")
     book = pd.read_parquet(od / "book.parquet")
     book = {e: g[["move", "n", "score"]] for e, g in book[book.band == opp_band].groupby("epd")}
-    E = read_parts(data_dir(cfg, "openings", "engine"))
-    E = {} if E is None else {p[5:]: json.loads(v) for p, v in zip(E.pos_id, E["values"]) if p.startswith("tree:")}
+    E = {p[5:]: v for p, (_, v) in opening_engine(cfg).items() if p.startswith("tree:")}
     L, body = [], ["<h1>Opening traps (exploratory)</h1>",
                    f"<p class='muted'>Exploitation layer, not the main analysis. Opponents modelled at ~{opp_elo:.0f} "
                    f"(book band {opp_band}; Maia where the book is thin). Gains assume you punish the mistake.</p>"]

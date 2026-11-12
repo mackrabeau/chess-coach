@@ -30,7 +30,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 
-from coach.config import data_dir, load_config
+from coach.config import load_config
 from coach.difficulty import at_elo, grid_of, maia_dir, player_maia_elo
 from coach.maia import Maia
 from coach.parts import done_ids, next_part_index, read_parts, write_part
