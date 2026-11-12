@@ -309,6 +309,34 @@ class Analyzer:
             keep.append((played, win_prob(_cp(info["score"], me))))
         return keep, cands[0][0]
 
+    def expand(self, fen: str, prefix: list[str], moves: list[str], nodes: int, root_eval: bool = True):
+        """Push `prefix`, then value the position (if root_eval) and each move in `moves` (plus the
+        engine's best when root_eval). Values = win prob for the side to move at `fen`.
+        Returns (best_uci or None, root value or None, {move: (value, engine's best next move or None)})."""
+        b = chess.Board(fen)
+        me = b.turn
+        game = object()
+        for u in prefix:
+            b.push_uci(u)
+
+        def val(bd):
+            if bd.is_checkmate():
+                return (0.0 if bd.turn == me else 1.0), None
+            if bd.is_game_over(claim_draw=True):
+                return 0.5, None
+            info = self._analyse(bd, nodes, game)
+            return win_prob(_cp(info["score"], me)), (info["pv"][0].uci() if info.get("pv") else None)
+
+        best, v0 = None, None
+        if root_eval:
+            v0, best = val(b)
+        out = {}
+        for u in dict.fromkeys(list(moves) + ([best] if best else [])):
+            b.push_uci(u)
+            out[u] = val(b)
+            b.pop()
+        return best, v0, out
+
     def reply_values(self, fen: str, move: str, replies: list[str], nodes: int):
         """After `move`: the opponent's best reply r*, its value V* (mover's win prob) and the
         value after each listed reply. Terminal positions are scored directly."""
