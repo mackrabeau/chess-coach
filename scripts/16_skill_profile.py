@@ -94,6 +94,16 @@ def categories(df):
     cats["winning (> 0.8), clock 3 min +"] = (wp > 0.8) & slow
     cats["middlegame, clock < 3 min"] = (df.ph == "middlegame") & ~slow
     cats["middlegame, clock 3 min +"] = (df.ph == "middlegame") & slow
+    # critical positions (one good move): where is the only move missed?
+    crit = df.critical.astype(bool).to_numpy()
+    cats["critical: best move quiet"] = crit & (df.best_kind == "quiet")
+    cats["critical: best move capture/check"] = crit & (df.best_kind != "quiet")
+    cats["critical: defending (wp_best < 0.5)"] = crit & (wp < 0.5)
+    cats["critical: pressing (wp_best >= 0.5)"] = crit & (wp >= 0.5)
+    cats["critical: contested (0.2-0.8)"] = crit & (wp >= 0.2) & (wp <= 0.8)
+    cats["critical: middlegame"] = crit & (df.ph == "middlegame")
+    cats["critical: endgame"] = crit & (df.ph == "endgame")
+    cats["critical: clock 3 min +"] = crit & slow
     return {k: np.asarray(v, bool) for k, v in cats.items()}
 
 
