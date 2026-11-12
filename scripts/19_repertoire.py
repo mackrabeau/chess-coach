@@ -48,7 +48,7 @@ from coach.study import chapter, write_studies
 
 REP = {"max_ply": 30, "reply_mass": 0.9, "min_reply_p": 0.05, "max_replies": 4, "min_prob": 0.002,
        "also_fine": 0.02, "bad": 0.08, "nodes": 1000000, "multipv": 3, "budget": 1500, "min_book": 30,
-       "chapter_min_prob": 0.02}
+       "chapter_min_prob": 0.02, "root_mass": 0.98, "root_max": 10}
 OPEN_DEFAULTS = {"max_ply": 30, "out_ply": 20, "bands": [1600, 1800, 2000, 2200, 2400, 4000]}
 
 
@@ -141,10 +141,13 @@ def build(color, cfg, rc, usual, book, opp_elo, maia, workers):
                     path, prob, _, src = nodes[e]
                     nodes[e] = (path, prob, sorted(lst, key=lambda x: -x[1]), src)
             nxt = {}
+            # the first opponent decisions (1st/2nd move) define the chapters: cover them more widely
+            mass_cap, n_cap = ((rc["root_mass"], rc["root_max"]) if ply <= 2 else (rc["reply_mass"], rc["max_replies"]))
+            min_p = rc["chapter_min_prob"] if ply <= 2 else rc["min_reply_p"]
             for e, (path, prob, dist, src) in nodes.items():
                 chosen, mass = [], 0.0
                 for m, p in dist or []:
-                    if mass >= rc["reply_mass"] or len(chosen) >= rc["max_replies"] or p < rc["min_reply_p"]:
+                    if mass >= mass_cap or len(chosen) >= n_cap or p < min_p:
                         break
                     chosen.append((m, float(p)))
                     mass += p
@@ -293,6 +296,10 @@ def main() -> None:
                 cnt, score = n["usual"][top]
                 dp.append((n["prob"] * cnt * cost, n, top, cost, cnt, score))
         dp.sort(key=lambda x: -x[0])
+        pd.DataFrame([{"color": name, "line": line_san(n["path"]), "fen": n["fen"], "move": top, "best": n["rec"],
+                       "cost": cost, "count": cnt, "score": score, "prob": n["prob"], "value": v}
+                      for v, n, top, cost, cnt, score in dp]).to_parquet(
+            data_dir(cfg, "player") / f"repertoire_points_{name}.parquet", index=False)
         new = sum(1 for n in mine.values() if not n["usual"])
         summary.append(f"{name}: {len(mine)} of your positions in the tree ({new} new for you), {len(theirs)} opponent "
                        f"positions, {spent} new engine searches, {len(chapters)} chapters; "

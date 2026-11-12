@@ -31,6 +31,7 @@ net-lose points vs your opponents.
 from __future__ import annotations
 
 import argparse
+import json
 import multiprocessing as mp
 import sys
 import time
@@ -235,9 +236,12 @@ def main() -> None:
     ro = outs[outs.rating >= cmp_min]
     L.append(f"A. out of the opening (move {oc['out_ply'] // 2 + 1}, side to move = you), mean win prob:")
     rows = []
+    items = {"out": {}, "costly": [], "must_know": [], "missed_punish": []}   # for the report (20)
     for col in ("white", "black"):
         a, p = ro[ro.color == col], peers[peers.color == col]
         lo, hi = boot_mean(a.wp)
+        items["out"][col] = {"you": float(a.wp.mean()), "lo": float(lo), "hi": float(hi),
+                             "peers": float(p.wp.mean()), "n": int(a.wp.notna().sum())}
         tag = "clear" if np.isfinite(lo) and (p.wp.mean() < lo or p.wp.mean() > hi) else "within noise"
         L.append(f"   as {col}: you {a.wp.mean():.3f} [{lo:.3f}, {hi:.3f}] (n {a.wp.notna().sum()}) vs peers "
                  f"{p.wp.mean():.3f} (n {p.wp.notna().sum()})  {tag}")
@@ -294,6 +298,8 @@ def main() -> None:
                  f"(top moves, points below best: {alts})")
         cards.append(card(r.fen, r.move, best, loss,
                           f"{line} · you played this {r.c}x (score {r.score:.2f}) · engine top: {alts}"))
+        items["costly"].append({"line": line, "fen": r.fen, "move": r.move, "best": best, "loss": float(loss),
+                                "count": int(r.c), "score": float(r.score), "alts": alts})
     body += ["<h2>B. Moves you play a lot that cost win probability</h2>",
              "<p class='muted'>Red = your move, green = Stockfish's. Ranked by how often × how much.</p>",
              f"<div class='grid'>{''.join(cards)}</div>"]
@@ -327,6 +333,8 @@ def main() -> None:
             cards.append(card(r.fen, r.usual, r.best, loss,
                               f"{r.path} · only good move {san(r.fen, r.best)} · you found it {r.hit:.0%} of "
                               f"{r.visits}"))
+            items["must_know"].append({"line": r.path, "fen": r.fen, "move": r.usual, "best": r.best,
+                                       "loss": float(loss), "hit": float(r.hit), "visits": int(r.visits)})
     else:
         L.append("C. must-know positions: none reached often enough")
     # opponents' frequent mistakes and your reply
@@ -359,12 +367,18 @@ def main() -> None:
                                                  peer=("peer", "first"))
         for e, r in miss.sort_values("n", ascending=False).head(5).iterrows():
             L.append(f"     missed {int(r.n)}x: {r.path} -> {san(r.fen, r.best)} (you played {san(r.fen, r.move)})")
+            items["missed_punish"].append({"line": r.path, "fen": r.fen, "move": r.move, "best": r.best,
+                                           "loss": float(r.loss), "count": int(r.n)})
             cards.append(card(r.fen, r.move, r.best, r.loss, f"{r.path} · opponent erred; punish with "
                               f"{san(r.fen, r.best)} · you missed it {int(r.n)}x"))
     body += ["<h2>C. Must-know positions and punishing opening mistakes</h2>",
              f"<div class='grid'>{''.join(cards)}</div>"]
 
     print("\n".join(L))
+    if len(Pn):
+        items["punish_rate"] = float(Pn.found.mean())
+        items["punish_n"] = int(len(Pn))
+    (out / "report_items.json").write_text(json.dumps(items, indent=1), encoding="utf-8")
     path = data_dir(cfg, "player") / "openings_report.html"
     path.write_text(page("Openings", "".join(body)), encoding="utf-8")
     print(f"wrote {path}")
