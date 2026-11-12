@@ -20,6 +20,7 @@ Output: data/<set>/maia_<lo>_<hi>_<step>/part-*.parquet (pos_id, p_best[grid], p
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -30,7 +31,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 
-from coach.config import load_config
+from coach.config import data_dir, load_config
 from coach.difficulty import at_elo, grid_of, maia_dir, player_maia_elo
 from coach.maia import Maia
 from coach.parts import done_ids, next_part_index, read_parts, write_part
@@ -174,6 +175,7 @@ def fit_report(cfg: dict) -> None:
         print(f"you, game by game: Maia Elo = chess.com rating + {c:.0f}  [90% {clo:.0f}, {chi:.0f}]  "
               f"(config maia.player_offset {cfg['maia'].get('player_offset')}); "
               f"at your latest rating ~{np.median(recent):.0f} that is ~{np.median(recent) + c:.0f}")
+        fitted = {"offset": float(c), "slope": 0.0, "kind": "constant"}
         if r.max() - r.min() >= 300:   # wide rating range: let the offset depend on rating
             c0, c1, a0, b0, a1, b1 = fit_offset(L, r, me.game_id.to_numpy(), grid,
                                                 offsets=np.arange(-300, 601, 10),
@@ -182,6 +184,7 @@ def fit_report(cfg: dict) -> None:
             print(f"you, rating-dependent: Maia Elo = r + {c0:.0f} + {c1:.2f} (r - 1800)  "
                   f"[c0 {a0:.0f}..{b0:.0f}, slope {a1:.2f}..{b1:.2f}]  ({ex}); "
                   f"set maia.player_offset / player_offset_slope from this")
+            fitted = {"offset": float(c0), "slope": float(c1), "kind": "rating-dependent"}
             print("  check per rating band (best fit vs mapped):")
             for lo, hi in ((0, 1200), (1200, 1500), (1500, 1750), (1750, 1850), (1850, 9999)):
                 m = (r >= lo) & (r < hi)
@@ -189,6 +192,10 @@ def fit_report(cfg: dict) -> None:
                     print(f"    chess.com {lo}-{min(hi, 3000) - 1}: median {np.median(r[m]):.0f}, best fit "
                           f"{best_fit(L[m].sum(0), grid):.0f}, mapped {np.median(r[m]) + c0 + c1 * (np.median(r[m]) - 1800):.0f}"
                           f"  ({me.game_id[m].nunique()} games)")
+        # saved per player; load_config uses it instead of maia.player_offset(_slope) from now on
+        (data_dir(cfg, "player") / "maia_offset.json").write_text(json.dumps(fitted), encoding="utf-8")
+        print(f"saved the fitted offset ({fitted['kind']}: {fitted['offset']:.0f}, slope {fitted['slope']:.2f}) "
+              "-> used automatically by every later stage")
 
 
 def main() -> None:

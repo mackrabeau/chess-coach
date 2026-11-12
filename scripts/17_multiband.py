@@ -38,7 +38,7 @@ import numpy as np
 import pandas as pd
 
 from coach.categories import annotate, categories
-from coach.config import data_dir, load_config, resolve
+from coach.config import data_dir, data_root, load_config, resolve
 from coach.mine import ParquetSink, _int, extract_positions, is_rapid
 from coach.pgn_stream import iter_raw_games
 from coach.results import load_analyzed
@@ -53,10 +53,35 @@ def band_name(lo):
     return f"band_{lo}"
 
 
+def own_range(cfg):
+    pc = cfg["population"]
+    return pc["rating_center"] - pc["rating_halfwidth"], pc["rating_center"] + pc["rating_halfwidth"]
+
+
+def resolve_sets(cfg, mb):
+    """[(dataset name, (lo, hi))] for every band + your own peer band. A range that has a full peer set
+    (data/population_<lo>_<hi>, e.g. another player's peers) uses it instead of mining a band sample."""
+    ranges = {tuple(b) for b in mb["bands"]} | {own_range(cfg)}
+    out = []
+    for lo, hi in sorted(ranges):
+        pop = f"population_{lo}_{hi}"
+        if (lo, hi) == own_range(cfg) or any((data_root(cfg) / pop / "engine").glob("part-*.parquet")):
+            out.append(("population" if (lo, hi) == own_range(cfg) else pop, (lo, hi)))
+        else:
+            out.append((band_name(lo), (lo, hi)))
+    return out
+
+
+def band_ranges(cfg, mb):
+    """Bands that need their own mined sample (no full peer set covers them)."""
+    return [r for n, r in resolve_sets(cfg, mb) if n.startswith("band_")]
+
+
 # ---------------------------------------------------------------- 1. mine
 def mine(cfg, mb):
     """Mine until every band has multiband.target positions. Incremental: existing positions are
     kept, their games skipped, so raising the target (refine.py does) just adds more."""
+    mb = {**mb, "bands": band_ranges(cfg, mb)}
     have, seen = {}, set()
     for lo, _ in mb["bands"]:
         f = data_dir(cfg, band_name(lo)) / "positions_engine.parquet"
@@ -140,9 +165,7 @@ def fit_line(r, m, w):
 
 
 def analyse(cfg, mb):
-    sets = [(band_name(lo), (lo, hi)) for lo, hi in mb["bands"]]
-    pc = cfg["population"]
-    sets.append(("population", (pc["rating_center"] - pc["rating_halfwidth"], pc["rating_center"] + pc["rating_halfwidth"])))
+    sets = resolve_sets(cfg, mb)
     bands = []
     for name, rng_ in sets:
         d = load_set(cfg, name)
@@ -236,7 +259,7 @@ def main() -> None:
     if args.stage in ("mine", "all"):
         mine(cfg, mb)
     if args.stage in ("engine", "all"):
-        for lo, _ in mb["bands"]:
+        for lo, _ in band_ranges(cfg, mb):
             engine_pass(cfg, band_name(lo), workers=args.workers)
     if args.stage in ("fit", "all"):
         analyse(cfg, mb)

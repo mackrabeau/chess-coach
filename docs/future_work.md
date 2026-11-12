@@ -97,6 +97,25 @@ Ideas worth exploring that aren't built yet, roughly grouped. Each: what, why, h
 - **Endgame tricks**: stalemate / fortress / perpetual resources from the same tree search (13), for
   lost positions (and the trap side when winning).
 
+## Language layer (Mack, 2026-11-18) — status: idea
+### Repo-local coach skill (no training)
+- `.claude/skills/coach/SKILL.md`: before answering, read `data/players/<user>/findings/*.json` (+ status
+  log); quote numbers with intervals; no generic advice without a finding; commands: "review this game"
+  (22_import_games on the PGN, walk the worst moments with the why-text), "plan my week" (top 2–3 Elo-gain
+  findings → drill sets with spaced repetition), method rules from CLAUDE.md (Maia-only = style, never-
+  resign caveat). Third-party skills: read their files before installing (`npx skills add` runs remote code).
+### Puzzle-explanation fine-tune (learning project)
+- Narrow job: structured facts (eval, best line SAN, played move + loss, top feature deltas, motif,
+  weakness category) → 2–4 sentence coaching explanation. Engine = source of truth; the LM only narrates.
+- Baselines first: [Second-1.0-2B](https://huggingface.co/joebos/Second-1.0-2B) (engine facts → coaching
+  prose, Qwen-based, 0.8–9B variants) and C1 (CSSLab, arXiv 2603.20510, 4B puzzle explanations). Related:
+  MATE (1M annotated positions, Llama-3-8B), ChessGPT (2023 data/models).
+- Data: a few thousand items from our pipeline, targets written by a strong model (distillation),
+  automatically filtered (every move mentioned legal and in the engine line; claims match the facts).
+- Train: QLoRA on a 1–4B model (Qwen); GTX 1660 6 GB can just about do 1–2B slowly; a rented GPU for a
+  few hours is easier. Eval: automatic hallucination rate (unsupported moves/claims) + Mack rates 50
+  samples vs baseline. Plug-in: drill/report puzzle comments call it (one setting to swap models).
+
 ## Modelling human search (Mack, 2026-11-13) — status: stage 1 done (error anatomy)
 - Stage 2: fitted search model (Maia policy as candidate generator for both sides, depth/breadth/leaf
   noise, think time from board features), validated by held-out likelihood vs plain Maia. New branch,

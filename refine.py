@@ -111,7 +111,7 @@ def main() -> None:
     args = ap.parse_args()
     CONFIG = args.config
     cfg = load_config(CONFIG)
-    state_path = data_dir(cfg) / "refine_state.json"
+    state_path = data_dir(cfg, "player").parent / "refine_state.json"      # per player
     state = json.loads(state_path.read_text()) if state_path.exists() else {"done": []}
     deadline = time.time() + 3600 * args.hours if args.hours else None
     plan = [(k, name, fn) for k in range(1, args.max_level + 1) for name, fn in tasks(cfg, k, args.workers)]
