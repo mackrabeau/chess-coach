@@ -18,12 +18,13 @@ Three cached stages (rerun skips finished ones; --rebuild redoes stage 2):
 Report (stdout + data/player/openings_report.html)
   A. Out of the opening: your win prob at move 10 (ply 20 as White / 21 as Black) vs peers;
      by opening; and how that eval converts into results (you and peers).
-  B. Moves you play a lot that lose win prob (>= 3 points), ranked by count x loss, with the
-     engine move and what the 2000-2200 / 2400+ bands play and score.
-  C. Must-know positions: only one good move (best beats 2nd by >= 10 points) and you reach
-     them often: how often you find it vs peers. Plus opponents' frequent opening mistakes:
-     do you punish them?
-  D. Where you leave theory (first own move rare at 2400+: < 10 games).
+  B. Moves you play repeatedly (>= 2x) that lose >= openings.flag (5) points by the engine, ranked
+     by count x loss, with the engine's top moves. Engine-only: what opponents play doesn't matter
+     here (exploitative lines belong to the exploitation layer, which uses the book from stage 2).
+  C. Must-know positions: only one good move (best beats 2nd by >= 10 points), reached >= 2x:
+     how often you find it. Plus opponents' opening mistakes: do you punish them?
+Covers the first 15 moves (max_ply 30): score accounting (15) shows moves ~10-15 are where you
+net-lose points vs your opponents.
 
     python scripts/14_openings.py --config configs/v0.yaml
 """
@@ -53,7 +54,7 @@ from coach.parts import done_ids, next_part_index, read_parts, write_part
 from coach.pgn_stream import iter_raw_games
 from coach.report import page, position_card
 
-OPEN = {"max_ply": 24, "min_count": 3, "dump_games": 2_000_000, "bands": [1600, 1800, 2000, 2200, 2400, 4000],
+OPEN = {"max_ply": 30, "min_count": 3, "min_visits": 2, "flag": 0.05, "dump_games": 2_000_000, "bands": [1600, 1800, 2000, 2200, 2400, 4000],
         "nodes": 300000, "multipv": 3, "peer_sample": 3000, "out_ply": 20, "leave_k": 4, "pop_share": 0.05,
         "good": 0.03, "bad": 0.08, "critical_gap": 0.10}
 ENGINE_SCHEMA = pa.schema([("pos_id", pa.string()), ("fen", pa.string()), ("best", pa.string()),
@@ -336,8 +337,8 @@ def main() -> None:
         return max(r[1].values()) if r and r[1] else np.nan
 
     L, body = [], ["<h1>Openings</h1>",
-                   f"<p class='muted'>Your chess.com rapid games, first {oc['max_ply'] // 2} moves. Peers = Lichess "
-                   f"rapid {peer_band} (by the mover's rating), strong = {strong}. Engine = Stockfish "
+                   f"<p class='muted'>Your chess.com rapid games, first {oc['max_ply'] // 2} moves, judged by the engine "
+                   f"only (peers = Lichess rapid {peer_band}, used only as the out-of-opening baseline). Stockfish "
                    f"{oc['nodes']:,} nodes. Win-probability points.</p>"]
 
     # A. out of the opening
@@ -389,23 +390,22 @@ def main() -> None:
         ev = E.get("tree:" + r.epd)
         if not ev or r.move not in ev[1] or r.c < 2:
             continue
-        best, vals = ev
+        vals = ev[1]
+        best = max(vals, key=vals.get)          # cached results from before the engine fix may differ
         loss = vals[best] - vals[r.move]
-        if loss >= oc["good"]:
+        if loss >= oc["flag"]:
             recs.append((r.c * loss, r, best, vals, loss))
     recs.sort(key=lambda x: -x[0])
-    L.append(f"B. moves you play repeatedly that lose >= {100 * oc['good']:.0f} points (ranked by count x loss):")
+    L.append(f"B. moves you play repeatedly that lose >= {100 * oc['flag']:.0f} points by the engine (ranked by count x loss):")
     cards = []
     for tot, r, best, vals, loss in recs[:15]:
-        pv, sv = band_view(book, r.epd, peer_band), band_view(book, r.epd, strong)
-        gr = good_rate(pv, vals, vals[best], oc["good"])
         line = f"{r.path} [{san(r.fen, r.move)}]".strip()
+        alts = ", ".join(f"{san(r.fen, m)} {100 * (vals[best] - v):.1f}" for m, v in list(vals.items())[:3])
         L.append(f"   {line}")
-        L.append(f"      you {r.c}x, loses {100 * loss:.1f} (your score {r.score:.2f}); engine: {san(r.fen, best)}; "
-                 f"peers play {top_move(pv, r.fen)}, good move {gr:.0%}; {strong}: {top_move(sv, r.fen)}")
+        L.append(f"      you {r.c}x, loses {100 * loss:.1f} (your score {r.score:.2f}); engine: {san(r.fen, best)} "
+                 f"(top moves, points below best: {alts})")
         cards.append(card(r.fen, r.move, best, loss,
-                          f"{line} · you played this {r.c}x (score {r.score:.2f}) · peers: {top_move(pv, r.fen)} · "
-                          f"{strong}: {top_move(sv, r.fen)}"))
+                          f"{line} · you played this {r.c}x (score {r.score:.2f}) · engine top: {alts}"))
     body += ["<h2>B. Moves you play a lot that cost win probability</h2>",
              "<p class='muted'>Red = your move, green = Stockfish's. Ranked by how often × how much.</p>",
              f"<div class='grid'>{''.join(cards)}</div>"]
@@ -420,7 +420,7 @@ def main() -> None:
         if vs[0] - vs[1] < oc["critical_gap"]:
             continue
         visits = mine[mine.epd == e]
-        if len(visits) < oc["min_count"]:
+        if len(visits) < oc["min_visits"]:
             continue
         hit = visits.move.map(lambda m: m in ev[1] and vs[0] - ev[1][m] < oc["good"]).mean()
         gr = good_rate(band_view(book, e, peer_band), ev[1], vs[0], oc["good"])
@@ -431,15 +431,14 @@ def main() -> None:
     if len(C):
         w = C.visits
         L.append(f"C. must-know positions (one good move, gap >= {100 * oc['critical_gap']:.0f}): {len(C)} positions, "
-                 f"{int(w.sum())} visits; you find it {np.average(C.hit, weights=w):.0%} vs peers "
-                 f"{np.average(C.peer.fillna(C.peer.mean()), weights=w):.0%} (same positions, visit-weighted)")
+                 f"{int(w.sum())} visits; you find it {np.average(C.hit, weights=w):.0%} (visit-weighted)")
         C["missed"] = C.visits * (1 - C.hit)
         for r in C.sort_values("missed", ascending=False).head(10).itertuples():
-            L.append(f"   {r.path} -> {san(r.fen, r.best)}: you {r.hit:.0%} of {r.visits}, peers {r.peer:.0%}")
+            L.append(f"   {r.path} -> {san(r.fen, r.best)}: you {r.hit:.0%} of {r.visits}")
             loss = max(r.vals.values()) - r.vals.get(r.usual, min(r.vals.values()))
             cards.append(card(r.fen, r.usual, r.best, loss,
                               f"{r.path} · only good move {san(r.fen, r.best)} · you found it {r.hit:.0%} of "
-                              f"{r.visits} · peers {r.peer:.0%}"))
+                              f"{r.visits}"))
     else:
         L.append("C. must-know positions: none reached often enough")
     # opponents' frequent mistakes and your reply
@@ -466,32 +465,16 @@ def main() -> None:
     Pn = pd.DataFrame(pun)
     if len(Pn):
         L.append(f"   opponents' opening mistakes (>= {100 * oc['bad']:.0f} points) you faced: {len(Pn)}; you punished "
-                 f"{Pn.found.mean():.0%} vs peers {Pn.peer.mean():.0%} in the same positions")
+                 f"{Pn.found.mean():.0%}")
         miss = Pn[~Pn.found].groupby("epd2").agg(n=("found", "size"), fen=("fen", "first"), best=("best", "first"),
                                                  move=("move", "first"), loss=("loss", "mean"), path=("path", "first"),
                                                  peer=("peer", "first"))
         for e, r in miss.sort_values("n", ascending=False).head(5).iterrows():
-            L.append(f"     missed {int(r.n)}x: {r.path} -> {san(r.fen, r.best)} (you played {san(r.fen, r.move)}, "
-                     f"peers find it {r.peer:.0%})")
+            L.append(f"     missed {int(r.n)}x: {r.path} -> {san(r.fen, r.best)} (you played {san(r.fen, r.move)})")
             cards.append(card(r.fen, r.move, r.best, r.loss, f"{r.path} · opponent erred; punish with "
-                              f"{san(r.fen, r.best)} · you missed it {int(r.n)}x · peers find it {r.peer:.0%}"))
+                              f"{san(r.fen, r.best)} · you missed it {int(r.n)}x"))
     body += ["<h2>C. Must-know positions and punishing opening mistakes</h2>",
              f"<div class='grid'>{''.join(cards)}</div>"]
-
-    # D. leaving theory
-    lv = []
-    for gid, gg in recent[recent.mine].groupby("game_id"):
-        for r in gg.sort_values("ply").itertuples():
-            v = band_view(book, r.epd, strong)
-            n = v.n[v.move == r.move].sum() if not v.empty else 0
-            if n < 10:
-                lv.append({"color": r.color, "move_no": r.ply // 2 + 1, "family": r.family})
-                break
-    LV = pd.DataFrame(lv)
-    if len(LV):
-        L.append("D. first own move rarely played at " + strong + " (< 10 games): median move "
-                 + ", ".join(f"{c} {LV[LV.color == c].move_no.median():.0f}" for c in ("white", "black")
-                             if (LV.color == c).any()))
 
     print("\n".join(L))
     path = data_dir(cfg, "player") / "openings_report.html"
