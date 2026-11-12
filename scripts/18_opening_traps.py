@@ -46,7 +46,7 @@ from coach.openings import band_labels, opening_engine, player_tree
 from coach.report import page, position_card
 
 TRAPS = {"min_count": 2, "bad": 0.08, "min_err_mass": 0.15, "min_book": 30, "multipv": 5,
-         "nodes_root": 300000, "nodes_reply": 100000, "reply_mass": 0.9, "max_replies": 6, "min_gain": 0.02}
+         "nodes_root": 1000000, "nodes_reply": 300000, "reply_mass": 0.9, "max_replies": 6, "min_gain": 0.02}
 OPEN_DEFAULTS = {"max_ply": 30, "out_ply": 20, "bands": [1600, 1800, 2000, 2200, 2400, 4000]}
 
 _an = None

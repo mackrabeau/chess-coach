@@ -162,34 +162,55 @@ def main() -> None:
             print(f"  {s.name:20s} {s.script:28s} {status(s, data)}{tag}")
         return
 
+    log_dir = data / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"main_{time.strftime('%Y%m%d_%H%M%S')}.log"
+    log = open(log_path, "w", encoding="utf-8")
+
+    def say(msg):
+        print(msg, flush=True)
+        log.write(msg + "\n")
+        log.flush()
+
+    say(f"log: {log_path}")
     failed = []
     t_all = time.time()
     for s in stages:
         if args.skip_maia and s.maia:
-            print(f"-- {s.name}: skipped (--skip-maia)")
+            say(f"-- {s.name}: skipped (--skip-maia)")
             continue
         if args.offline and s.network:
-            print(f"-- {s.name}: skipped (--offline)")
+            say(f"-- {s.name}: skipped (--offline)")
             continue
         st = status(s, data)
         if s.name not in force and st == "up to date":
-            print(f"-- {s.name}: up to date")
+            say(f"-- {s.name}: up to date")
             continue
         extra = s.offline_args if (args.offline and s.offline_args) else []
         cmd = [sys.executable, str(ROOT / "scripts" / s.script), "--config", args.config, *s.args, *extra]
-        print(f"\n== {s.name} ({st}) :: {' '.join(cmd[1:])}", flush=True)
+        say(f"\n== {s.name} ({st}) :: {' '.join(cmd[1:])}")
         t0 = time.time()
-        r = subprocess.run(cmd, cwd=ROOT)
-        if r.returncode != 0:
-            print(f"!! {s.name} failed (exit {r.returncode})")
+        # stream the stage's output to the screen and the log (python -u: no buffering)
+        proc = subprocess.Popen([cmd[0], "-u", *cmd[1:]], cwd=ROOT, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+        for line in proc.stdout:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            log.write(line)
+            log.flush()
+        rc = proc.wait()
+        if rc != 0:
+            say(f"!! {s.name} failed (exit {rc})")
             failed.append(s.name)
             if not args.keep_going:
-                sys.exit(f"stopped at {s.name}; fix it and rerun (finished work is kept), "
-                         f"or use --keep-going")
+                say(f"stopped at {s.name}; fix it and rerun (finished work is kept), or use --keep-going")
+                say(f"log: {log_path}")
+                sys.exit(1)
         else:
-            print(f"   {s.name} done in {(time.time() - t0) / 60:.1f} min")
-    print(f"\nall done in {(time.time() - t_all) / 3600:.2f} h" + (f"; failed: {', '.join(failed)}" if failed else ""))
-    print(f"reports: {data / 'player'} (*.html), {data / 'ideas'} (*.html)")
+            say(f"   {s.name} done in {(time.time() - t0) / 60:.1f} min")
+    say(f"\nall done in {(time.time() - t_all) / 3600:.2f} h" + (f"; failed: {', '.join(failed)}" if failed else ""))
+    say(f"reports: {data / 'player'} (*.html), {data / 'ideas'} (*.html)")
+    say(f"log: {log_path}")
 
 
 if __name__ == "__main__":

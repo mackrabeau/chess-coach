@@ -30,7 +30,7 @@ Reports
 
 Output: data/<set>/practical_tree.parquet, data/player/practical_tree_report.html
 Config (optional block `tree:`; defaults below): n 600, opp_mass 0.85, max_opp 4,
-self_mass 0.85, max_self 4, nodes 100000, p_grid [0, 0.25, 0.5, 0.75, 1].
+self_mass 0.85, max_self 4, nodes 300000, p_grid [0, 0.25, 0.5, 0.75, 1].
 """
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ from coach.maia import Maia, maia_lists
 from coach.report import page, position_card
 from coach.results import load_analyzed
 
-TREE = {"n": 600, "opp_mass": 0.85, "max_opp": 4, "self_mass": 0.85, "max_self": 4, "nodes": 100000,
+TREE = {"n": 600, "opp_mass": 0.85, "max_opp": 4, "self_mass": 0.85, "max_self": 4, "nodes": 300000,
         "p_grid": [0, 0.25, 0.5, 0.75, 1]}
 
 _an: Analyzer | None = None

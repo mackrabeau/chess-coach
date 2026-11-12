@@ -7,7 +7,7 @@ Personal chess coaching pipeline for Mack (chess.com `bananaman987654321`, rapid
 More detail when needed: `docs/status_log.md` (full chronological log, real-data numbers), `docs/future_work.md` (parked ideas), `docs/report_design.md` (report/drills proposal), `docs/generalize.md` (what's tailored to Mack; keep adding), script docstrings (each script documents itself).
 
 ## Run
-- `python main.py [--list|--only a,b|--from x|--force x|--update|--skip-maia|--offline]`: all stages, make-style; resumable passes always invoked.
+- `python main.py [--list|--only a,b|--from x|--force x|--update|--skip-maia|--offline]`: all stages, make-style; resumable passes always invoked. Every run writes `data/logs/main_<time>.log` (all stage output); Mack pastes that when something fails. Reference fake-data run: `tests/logs/fake_data_main_run.log` (all stages OK up to 13, stopped there by hand).
 - `python refine.py [--hours H|--status]`: compute pouring; level k = engine.nodes × 4^k on priority positions (errors, threshold cases, critical; player + peers by the same rule) → opening tree deeper → more band data → all positions. Results in `data/<set>/engine_L<k>/`; `load_analyzed` uses the deepest (refined rows keep their own lines); `refined=False` when comparing with never-refined sets (17's bands).
 - Tests: fake data via `tests/make_fake_data.py` + `tests/test.yaml`. Locally: `sed 's#C:/tools/stockfish/stockfish-windows-x86-64-avx2.exe#/usr/games/stockfish#' tests/test.yaml > tests/local.yaml`, venv `/tmp/claude-0/venv/bin/python`, delete local.yaml after. Fake games are engine-played: Maia fits hit the grid edge, you-vs-peers "within noise".
 
@@ -35,7 +35,7 @@ Shared code: `coach/runner.py`, `results.py` (load_analyzed), `categories.py`, `
 - **Exploitation**: Maia opponent model calibrated (Brier skill +44%); predicted trap value matches realized; 13's model of his own follow-ups validated (follow-up in Maia's list 90%; predicted 45.5 vs realized 46.2) but you ≈ peers → generic until an individual model exists.
 
 ## Open / next
-- Mack to run on real data: 17 (multi-band; hours of Stockfish), 18 (traps), then main.py/refine.
+- Mack to run on real data: `python main.py` (new: 17 multi-band = mining + ~1.5 h Stockfish, 18 traps at 1M/300k nodes), then refine. Exploratory defaults deepened: 13 tree nodes 300k (was 100k), 18 nodes_root 1M / nodes_reply 300k. 13 only reruns with `--force practical-tree` (~1.5 h).
 - Report generator: waiting on Mack's answers to the 3 questions in `docs/report_design.md` (recommendation: one static HTML organized Analysis/Exploitation/Drills + Lichess study PGN files).
 - Parked ideas: `docs/future_work.md` (time management model and clean-endgame plan execution are next candidates).
 
