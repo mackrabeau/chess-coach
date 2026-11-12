@@ -50,7 +50,7 @@ from coach.config import data_dir, load_config, resolve
 from coach.difficulty import player_maia_elo
 from coach.engine import Analyzer
 from coach.handcrafted import phase
-from coach.maia import Maia
+from coach.maia import Maia, maia_lists
 from coach.report import page, position_card
 from coach.results import load_analyzed
 
@@ -140,39 +140,6 @@ def actual_lines(cfg, name, df):
             b.pop()
             if pid in out:
                 break
-    return out
-
-
-def maia_lists(maia, nodes, mass, kmax, batch=128):
-    """nodes: list of (fen_after, history(oldest first), self_elo, oppo_elo, must_include).
-    Returns per node: ([(move, P)] listed, {move: P} for all moves with P >= 0.001)."""
-    torch = maia.torch
-    out = []
-    for b0 in range(0, len(nodes), batch):
-        sub = nodes[b0:b0 + batch]
-        live = [k for k, nd in enumerate(sub) if not chess.Board(nd[0]).is_game_over()]
-        res = [([], {}) for _ in sub]
-        if live:
-            T = torch.stack([maia.tokens(sub[k][0], sub[k][1][-7:]) for k in live])
-            M = torch.stack([maia.legal_mask(sub[k][0]) for k in live])
-            P = maia.policy(T, M, np.array([sub[k][2] for k in live], float),
-                            np.array([sub[k][3] for k in live], float)).cpu().numpy()
-            for j, k in enumerate(live):
-                fa = sub[k][0]
-                probs = sorted(((float(P[j, maia.index(fa, m.uci())]), m.uci())
-                                for m in chess.Board(fa).legal_moves), reverse=True)
-                full = {m: p for p, m in probs}
-                chosen, tot = [], 0.0
-                for p, m in probs:
-                    if tot >= mass or len(chosen) >= kmax:
-                        break
-                    chosen.append((m, p))
-                    tot += p
-                for extra in sub[k][4]:
-                    if extra and extra not in {m for m, _ in chosen} and extra in full:
-                        chosen.append((extra, full[extra]))
-                res[k] = (chosen, {m: p for m, p in full.items() if p >= 0.001})
-        out += res
     return out
 
 
