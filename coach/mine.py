@@ -111,7 +111,8 @@ def extract_positions(
         if (
             ply >= fcfg["min_ply"]
             and mover_ok(mover == chess.WHITE)
-            and clk_before >= fcfg["min_clock_seconds"]  # NaN fails this -> skipped
+            # NaN fails this -> skipped; min_clock_seconds None = no clock check (imported OTB games)
+            and (fcfg["min_clock_seconds"] is None or clk_before >= fcfg["min_clock_seconds"])
             and board.legal_moves.count() > 1  # forced moves teach nothing
         ):
             rows.append(

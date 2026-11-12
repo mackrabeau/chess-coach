@@ -41,6 +41,7 @@ import pandas as pd
 
 from coach.config import data_dir, load_config
 from coach.difficulty import player_maia_elo
+from coach.findings import elo_gain, example, finding, write as write_findings
 from coach.maia import Maia, maia_lists
 from coach.openings import band_labels, evaluate, opening_engine, player_tree
 from coach.report import page, position_card
@@ -313,6 +314,27 @@ def main() -> None:
                            "played_line": [top], "wp_loss": cost, "phase": "opening"})
             all_cards.append(position_card(r, note=f"{line_san(n['path'])} · you: {san(n['fen'], top)} "
                                                    f"({cnt}x, score {score:.2f}) · better: {san(n['fen'], n['rec'])}"))
+    # findings: decision points you still play the worse move in (latest game), as Elo gain
+    last = recent.sort_values("date").groupby("epd").move.last()
+    n_games = max(recent.game_id.nunique(), 1)
+    fi = []
+    for name in ("white", "black"):
+        p = data_dir(cfg, "player") / f"repertoire_points_{name}.parquet"
+        if not p.exists():
+            continue
+        for r in pd.read_parquet(p).itertuples():
+            e = chess.Board(r.fen).epd()
+            if last.get(e) != r.move:
+                continue                                   # your latest game already played something else
+            fi.append(finding(f"rep:{e}", "opening", f"{r.line} … {san(r.fen, r.move)}",
+                              f"You play <b>{san(r.fen, r.move)}</b> ({r.count}x, score {r.score:.2f}); "
+                              f"<b>{san(r.fen, r.best)}</b> is {100 * r.cost:.1f} points better (as {name}).",
+                              "lead" if r.cost < 0.05 else "solid", elo_gain(r.cost * r.count / n_games),
+                              "cost × times per game", None, [example(r.fen, [r.best], [r.move], r.line)],
+                              {"theme": "opening lines", "puzzles": [{"fen": r.fen, "solution": [r.best],
+                                                                     "comment": f"Better than {san(r.fen, r.move)}."}]},
+                              "The repertoire study has the follow-ups.", "repertoire.html"))
+    write_findings(cfg, "repertoire", fi)
     body = ("<h1>Your lines, extended</h1>"
             f"<p class='muted'>Engine-best repertoire grown from the openings you play. Your usual move is kept when "
             f"it's within {100 * rc['also_fine']:.0f} points of the best. Replies: Lichess players {html.escape(band)} "

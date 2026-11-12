@@ -87,6 +87,9 @@ STAGES = [
           ["player/balanced_endgames.html"]),
     Stage("openings", "14_openings.py", [], ["player/archives/*.json", "openings/engine*/*.parquet"],
           ["player/openings_report.html"]),
+    Stage("opening-findings", "14b_opening_findings.py", [], ["player/archives/*.json", "openings/engine*/*.parquet",
+                                                              "openings/report_items.json"] + eng("player"),
+          ["findings/openings.json"]),
     Stage("repertoire", "19_repertoire.py", [], ["openings/book.parquet", "openings/engine*/*.parquet",
                                                   "player/archives/*.json"],
           ["player/repertoire.html"], maia=True),
@@ -95,13 +98,16 @@ STAGES = [
     Stage("skill", "16_skill_profile.py", [], eng("player") + eng("population") + ["*/maia_*/*.parquet"],
           ["player/skill_profile.parquet"], maia=True),
     Stage("multiband", "17_multiband.py", [], always=True),
+    Stage("category-findings", "17b_category_findings.py", [], ["player/skill_profile.parquet",
+                                                                "player/multiband.parquet"] + eng("player"),
+          ["findings/categories.json"]),
+    Stage("imported-games", "22_import_games.py", [], always=True),
     # layer 2: exploitation (exploratory)
     Stage("practical-tree", "13_practical_tree.py", [], eng("player") + eng("population"),
           ["player/practical_tree.parquet"], maia=True),
     Stage("traps", "18_opening_traps.py", [], ["openings/book.parquet", "openings/engine*/*.parquet"],
           ["player/opening_traps.html"], maia=True),
-    Stage("report", "20_report.py", [], ["player/*.parquet", "openings/*.json", "openings/*.parquet"],
-          ["player/report.html"]),
+    Stage("report", "20_report.py", [], ["findings/*.json"], ["player/report.html"]),
 ]
 
 

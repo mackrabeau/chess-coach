@@ -66,9 +66,11 @@ class Report:
 
     @staticmethod
     def finding(title: str, claim: str, tag: str, evidence: str = "", examples: str = "",
-                todo: str = "") -> str:
-        return (f"<details class='finding' open><summary><span class='tag {esc(tag)}'>{esc(TAG_TEXT.get(tag, tag))}"
-                f"</span> {esc(title)}</summary><p class='claim'>{claim}</p>"
+                todo: str = "", elo=None, elo_note: str = "", link: str | None = None, open_: bool = True) -> str:
+        gain = (f"<span class='gain' title='{esc(elo_note)}'>≈ +{elo:.0f} Elo</span>" if elo else "")
+        more = f" <a class='more' href='{esc(link)}'>details →</a>" if link else ""
+        return (f"<details class='finding'{' open' if open_ else ''}><summary><span class='tag {esc(tag)}'>"
+                f"{esc(TAG_TEXT.get(tag, tag))}</span> {esc(title)} {gain}</summary><p class='claim'>{claim}{more}</p>"
                 + (f"<div class='evidence'>{evidence}</div>" if evidence else "")
                 + (f"<div class='exs'>{examples}</div>" if examples else "")
                 + (f"<p class='todo'><b>What to do:</b> {todo}</p>" if todo else "") + "</details>")
@@ -123,7 +125,7 @@ main{max-width:1100px;margin:0 auto;padding:16px}.pane{display:none}.pane.on{dis
 h2{font-size:18px;margin:22px 0 8px}h3{font-size:16px;margin:16px 0 6px}
 .muted{color:var(--muted)}.finding{background:var(--card);border:1px solid var(--line);border-radius:10px;
 padding:10px 14px;margin:10px 0}.finding summary{cursor:pointer;font-weight:600}
-.claim{margin:8px 0}.todo{margin:8px 0 2px}
+.claim{margin:8px 0}.gain{float:right;font-weight:600;color:var(--accent)}.more{font-size:13px}.todo{margin:8px 0 2px}
 .tag{font-size:12px;font-weight:600;border-radius:6px;padding:1px 7px;margin-right:6px;color:#fff;background:#888}
 .tag.solid{background:#c0392b}.tag.lead{background:#d68910}.tag.style{background:#7f8c8d}
 .tag.strength{background:#1e8449}.tag.info{background:#2e86c1}.tag.exploratory{background:#8e44ad}
