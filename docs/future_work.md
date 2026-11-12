@@ -71,6 +71,18 @@ Ideas worth exploring that aren't built yet, roughly grouped. Each: what, why, h
   the report generator (option A HTML) to render one game. A local web app (option B) would make the
   upload step natural; with option A it's a command (`python analyse_game.py game.pgn`) that writes the tab.
 
+### Over-the-board games: classical + 30+30 (Mack, 2026-11-18) — status: idea
+- ~10 classical and ~15 30+30 games played in person, as PGN. Same upload path as the single-game tab,
+  plus a batch import (`import_pgn.py games.pgn --source otb`) producing the standard position schema
+  with `source = "otb"`, so every stage can include or exclude them.
+- Differences to handle: no clock data in most OTB PGNs (skip clock / think-time measures; keep them
+  NaN, not 0); different time control → don't pool with chess.com rapid for "vs peers" (peers would be
+  Lichess classical, a separate band) — or report them as their own small section; ratings are
+  FIDE/national (own mapping, or Maia best-fit per game only). n ≈ 25 games → per-game analysis and
+  description (game ratings, worst moments, opening lines vs the repertoire), not statistical claims.
+- Useful comparison: same measures OTB vs online (does slow play change the critical-position gap?),
+  with the small n made explicit.
+
 ## Layer 2: exploitation (exploratory)
 
 - **Safety budget over a whole game** (Ganzfried & Sandholm: only risk what the opponent has gifted):
