@@ -25,13 +25,13 @@ tailored to one player). Detailed method/status log: `CLAUDE.md`.
 2. **Stockfish** from https://stockfishchess.org/download/.
 3. **A Lichess monthly dump** (`lichess_db_standard_rated_YYYY-MM.pgn.zst`, ~30 GB) from
    https://database.lichess.org/. Don't unzip it; it's streamed.
-4. **Config**: copy `configs/example.yaml` to `configs/<you>.yaml` and fill in the fields marked `<-`
-   (username, Stockfish path, dump path, rating band).
+4. **Config**: copy `configs/example.yaml` to `configs/local/<you>.yaml` (ignored by git, so your username and
+   paths stay on your machine) and fill in the fields marked `<-` (username, Stockfish path, dump path, rating band).
 
 ## Run everything
 
 ```
-python main.py --config configs/<you>.yaml
+python main.py --config configs/local/<you>.yaml
 ```
 
 Runs every stage that is missing or out of date, in order (fetch your games → mine peers → Stockfish
@@ -46,9 +46,9 @@ at 1M nodes), plus ~1 h of GPU for Maia.
 ## More compute = more accuracy
 
 ```
-python refine.py --config configs/<you>.yaml            # until the planned levels are done
-python refine.py --config configs/<you>.yaml --hours 8  # time budget
-python refine.py --config configs/<you>.yaml --status
+python refine.py --config configs/local/<you>.yaml            # until the planned levels are done
+python refine.py --config configs/local/<you>.yaml --hours 8  # time budget
+python refine.py --config configs/local/<you>.yaml --status
 ```
 
 Re-searches positions at 4x, 16x, 64x the nodes (priority first: mistakes, threshold cases,

@@ -1,7 +1,7 @@
 """Head-to-head report: you vs one other player. Separate from main.py (which compares you with the
 population); run it once both players have been through the pipeline:
 
-    python scripts/23_compare_players.py --config configs/v0.yaml --other configs/fawzx.yaml
+    python scripts/23_compare_players.py --config configs/local/me.yaml --other configs/local/friend.yaml
 
 Output: data/compare/<you>_vs_<them>/report.html (+ prep_<a>_to_<b>.pgn Lichess studies)
 

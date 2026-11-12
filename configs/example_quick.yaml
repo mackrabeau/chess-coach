@@ -1,0 +1,19 @@
+# Quick head-to-head test without the full pipeline for the other player (copy to configs/local/):
+#   python main.py --config configs/local/<friend>_quick.yaml --only fetch,engine-player,openings,opening-findings,multiband --skip-maia
+#   python scripts/23_compare_players.py --config configs/local/<you>.yaml --other configs/local/<friend>_quick.yaml
+# Recent games only, reuses an existing peer set and the bands (nothing mined), skips the opening book's dump pass.
+# Same data folder as the full run, so the engine work is kept. For the full run afterwards, use the friend's
+# normal config with --force fetch,openings.
+extends: friend.yaml           # <- the friend's full config
+
+player:
+  fetch_min_rating: 1950       # recent games only
+
+population:
+  rating_center: 2100          # <- an existing peer set (yours), so nothing new is mined
+
+openings:
+  book: false
+
+multiband:
+  bands: [[1600, 1800], [1800, 2000], [2200, 2400], [2400, 3000]]

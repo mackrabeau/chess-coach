@@ -1,0 +1,20 @@
+# Second player: copy to configs/local/<friend>.yaml. Inherits everything from your own config
+# (paths, engine, Maia, ...) and overrides the player and their peer band.
+#   python main.py --config configs/local/<friend>.yaml
+extends: you.yaml              # <- your own config in configs/local/
+
+player:
+  username: friend_username    # <- chess.com username
+  min_player_rating: 1950      # <- ~150 below their current rapid rating
+  fetch_min_rating: 0          # whole history; raise it to save engine time
+
+population:
+  rating_center: 2300          # <- Lichess equivalent of their chess.com rating (chess.com + ~150-200 near 2000)
+  rating_halfwidth: 100
+
+maia:                          # starting values; 09b fits and saves this player's offset automatically
+  player_offset: 150
+  player_offset_slope: 0.0
+
+multiband:                     # include the band of any existing peer set so it gets reused, not mined
+  bands: [[1600, 1800], [1800, 2000], [2000, 2200], [2400, 3000]]

@@ -5,7 +5,7 @@ Ideas worth exploring that aren't built yet, roughly grouped. Each: what, why, h
 
 ## Layer 1: analysis
 
-### Time management model (Mack, 2026-11-17) — status: designed, not built
+### Time management model (2026-11-17) — status: designed, not built
 - **Why**: critical positions with a forcing move while pressing are missed more than peers only with
   < 3 min left (at par with time); long thinks in "easy" positions go wrong often (34% vs 7% at the
   same Maia difficulty); he reaches late phases with less clock than peers.
@@ -19,7 +19,7 @@ Ideas worth exploring that aren't built yet, roughly grouped. Each: what, why, h
   from "hard positions take time". Peers' per-move think times need a clock-only re-mine of the dump.
 - Maia lines as a model of what he calculates: speculative, parked.
 
-### Clean endgame / plan execution (Mack, 2026-11-17) — status: idea
+### Clean endgame / plan execution (2026-11-17) — status: idea
 - **What**: detect the endgame's idea (king route to a target pawn, supported passer push, rook behind
   passer, trade into won K+P, breakthrough; opposition/triangulation via tablebase) from features
   changing along a long engine line, then score how well his next moves follow it.
@@ -30,7 +30,7 @@ Ideas worth exploring that aren't built yet, roughly grouped. Each: what, why, h
   his moves for 20 rook/K+P endings). Peers have only ~12 sampled positions per game → you-only unless
   full peer endgames are re-mined (more engine time).
 
-### Repertoire extension: "your lines, extended" (Mack, 2026-11-17) — status: designed, not built
+### Repertoire extension: "your lines, extended" (2026-11-17) — status: designed, not built
 - **Why**: in openings he plays a lot, a move can be fine and still not the best; and past the point
   where he stops knowing theory he should know the follow-ups (essential at 2000+). Engine-only, so it
   belongs in the main opening analysis (14), not the exploitation layer. Example: after 1.e4 e5
@@ -62,7 +62,7 @@ Ideas worth exploring that aren't built yet, roughly grouped. Each: what, why, h
 - **Grow the peer set** in refine.py (population positions beyond 20k; needs 02 + 03 on the new ones,
   since load_analyzed refuses partial settled coverage).
 
-### Single-game analysis tab (Mack, 2026-11-18) — status: idea
+### Single-game analysis tab (2026-11-18) — status: idea
 - Upload one game (PGN) → run the pipeline on just that game → a report tab tailored to it: game
   rating + per-phase ratings (red → green, as chess.com), best moves / mistakes / blunders, opening ideas
   (vs the repertoire), tactics, endgame ideas, the idea concepts — and how this game compares with the
@@ -71,7 +71,7 @@ Ideas worth exploring that aren't built yet, roughly grouped. Each: what, why, h
   the report generator (option A HTML) to render one game. A local web app (option B) would make the
   upload step natural; with option A it's a command (`python analyse_game.py game.pgn`) that writes the tab.
 
-### Over-the-board games: classical + 30+30 (Mack, 2026-11-18) — status: idea
+### Over-the-board games: classical + 30+30 (2026-11-18) — status: idea
 - ~10 classical and ~15 30+30 games played in person, as PGN. Same upload path as the single-game tab,
   plus a batch import (`import_pgn.py games.pgn --source otb`) producing the standard position schema
   with `source = "otb"`, so every stage can include or exclude them.
@@ -97,7 +97,7 @@ Ideas worth exploring that aren't built yet, roughly grouped. Each: what, why, h
 - **Endgame tricks**: stalemate / fortress / perpetual resources from the same tree search (13), for
   lost positions (and the trap side when winning).
 
-## Language layer (Mack, 2026-11-18) — status: idea
+## Language layer (2026-11-18) — status: idea
 ### Repo-local coach skill (no training)
 - `.claude/skills/coach/SKILL.md`: before answering, read `data/players/<user>/findings/*.json` (+ status
   log); quote numbers with intervals; no generic advice without a finding; commands: "review this game"
@@ -113,20 +113,20 @@ Ideas worth exploring that aren't built yet, roughly grouped. Each: what, why, h
 - Data: a few thousand items from our pipeline, targets written by a strong model (distillation),
   automatically filtered (every move mentioned legal and in the engine line; claims match the facts).
 - Train: QLoRA on a 1–4B model (Qwen); GTX 1660 6 GB can just about do 1–2B slowly; a rented GPU for a
-  few hours is easier. Eval: automatic hallucination rate (unsupported moves/claims) + Mack rates 50
+  few hours is easier. Eval: automatic hallucination rate (unsupported moves/claims) + the player rates 50
   samples vs baseline. Plug-in: drill/report puzzle comments call it (one setting to swap models).
 
-## Modelling human search (Mack, 2026-11-13) — status: stage 1 done (error anatomy)
+## Modelling human search (2026-11-13) — status: stage 1 done (error anatomy)
 - Stage 2: fitted search model (Maia policy as candidate generator for both sides, depth/breadth/leaf
   noise, think time from board features), validated by held-out likelihood vs plain Maia. New branch,
   only if stage 1 shows he searches differently from peers (it showed little difference so far).
 - Identifiability: one move per position → only aggregate search parameters are estimable.
 
-## Engine-side ideas (Mack, 2026-11-13) — status: parked
+## Engine-side ideas (2026-11-13) — status: parked
 - Abstract planning / endgame concepts to guide search, long-term planning in engines. Research
   direction, outside the coaching tool.
 
 ## Report / tooling
-- Report generator per `docs/report_design.md` (waiting on Mack's 3 answers).
+- Report generator per `docs/report_design.md` (waiting on the player's 3 answers).
 - LLM verbalization of findings grounded on the computed numbers + positions (never free text).
 - Generalize for other players: `docs/generalize.md`.

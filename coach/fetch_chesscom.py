@@ -14,7 +14,7 @@ import requests
 
 API = "https://api.chess.com/pub/player/{user}/games/archives"
 HEADERS = {
-    "User-Agent": "chess-coach/0.1 (personal research; chess.com user bananaman987654321)",
+    "User-Agent": "chess-coach/0.1 (personal research)",
     "Accept": "application/json",
 }
 
@@ -32,6 +32,8 @@ def _get(url: str, retries: int = 5) -> dict:
 
 
 def fetch_archives(username: str, out_dir: Path) -> list[Path]:
+    # chess.com asks for a descriptive User-Agent; name the account whose own games are fetched
+    HEADERS["User-Agent"] = f"chess-coach/0.1 (personal research; chess.com user {username.lower()})"
     out_dir.mkdir(parents=True, exist_ok=True)
     archives = _get(API.format(user=username.lower()))["archives"]
     now = dt.datetime.now(dt.timezone.utc)

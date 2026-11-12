@@ -9,7 +9,8 @@ Data layout (several players side by side; nothing is deleted when you switch):
   data/population_<lo>_<hi>/ideas/    idea model learned on those peers
   data/band_<lo>/                     multi-band samples (shared)
   data/compare/<a>_vs_<b>/            head-to-head reports
-Configs can inherit: `extends: v0.yaml` loads that file first and overrides it key by key, so a
+Personal configs go in configs/local/ (ignored by git: usernames, paths, fitted values stay on your
+machine); `--config configs/v0.yaml` also finds configs/local/v0.yaml. Configs can inherit: `extends: v0.yaml` loads that file first and overrides it key by key, so a
 second player's config only needs the player block (and the peer band).
 """
 from __future__ import annotations
@@ -31,16 +32,24 @@ def _merge(base: dict, over: dict) -> dict:
     return out
 
 
+def _project_root(path: Path) -> Path:
+    for p in path.parents:
+        if (p / "main.py").exists() and (p / "coach").is_dir():
+            return p
+    return path.parent.parent
+
+
 def load_config(path: str | Path) -> dict:
     path = Path(path).resolve()
+    if not path.exists() and (path.parent / "local" / path.name).exists():
+        path = path.parent / "local" / path.name          # personal configs live in configs/local/ (not in git)
     with open(path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f) or {}
     if "extends" in cfg:
         base = load_config(path.parent / cfg.pop("extends"))
         base.pop("_maia_fitted", None)
         cfg = _merge({k: v for k, v in base.items() if not k.startswith("_")}, cfg)
-    # Project root = parent of the configs/ folder.
-    cfg["_root"] = path.parent.parent
+    cfg["_root"] = _project_root(path)                     # folder with main.py (configs may be nested)
     cfg["_config_path"] = str(path)
     _migrate_legacy(cfg)
     _use_fitted_maia(cfg)

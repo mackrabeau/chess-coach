@@ -1,55 +1,71 @@
 # chess-coach — context for Claude Code
 
-Personal chess coaching pipeline for Mack (chess.com `bananaman987654321`, rapid ~1920, ~1,650 rapid games, climbed from 960). Finds what costs him points, how sure we are, and what to train. Two layers, kept separate:
-1. **Analysis** (you vs reference; engine + stats; opening → middlegame → endgame).
-2. **Exploitation** (exploratory; models of a player: traps, practical moves, later scouting / self-exploitability).
+Chess coaching pipeline: finds what costs a player rating points, how sure we are, and what to train, from their
+chess.com games compared with Lichess players (peers at their level and rating bands above/below), using Stockfish
+(accuracy) and Maia-3 (human-likeness / difficulty). Two layers, kept separate:
+1. **Analysis** (player vs reference; engine + stats; opening → middlegame → endgame).
+2. **Exploitation** (exploratory; models of opponents: traps, practical moves, head-to-head prep).
 
-Parallel work / new modules: `docs/agents.md` (modules publish findings via `coach/findings.py`; the report only aggregates). More detail when needed: `docs/status_log.md` (full chronological log, real-data numbers), `docs/future_work.md` (parked ideas), `docs/report_design.md` (report/drills proposal), `docs/generalize.md` (what's tailored to Mack; keep adding), script docstrings (each script documents itself).
+**Personal context lives outside git**: `CLAUDE.local.md` (the player's results, preferences, environment;
+Claude Code loads it next to this file when present), `docs/local/status_log.md` (chronological log),
+`configs/local/*.yaml` (configs with usernames/paths). Never commit personal data, usernames, results or
+paths; keep shared docs generic. Other docs: `docs/agents.md` (modules publish findings via
+`coach/findings.py`; the report only aggregates), `docs/future_work.md`, `docs/report_design.md`,
+`docs/generalize.md`; each script documents itself in its docstring.
 
 ## Run
-- `python main.py [--list|--only a,b|--from x|--force x|--update|--skip-maia|--offline]`: all stages, make-style; resumable passes always invoked. Every run writes `data/logs/main_<time>.log` (all stage output); Mack pastes that when something fails. Reference fake-data run: `tests/logs/fake_data_main_run.log` (all stages OK up to 13, stopped there by hand).
-- `python refine.py [--hours H|--status]`: compute pouring; level k = engine.nodes × 4^k on priority positions (errors, threshold cases, critical; player + peers by the same rule) → opening tree deeper → more band data → all positions. Results in `data/<set>/engine_L<k>/`; `load_analyzed` uses the deepest (refined rows keep their own lines); `refined=False` when comparing with never-refined sets (17's bands).
-- Tests: fake data via `tests/make_fake_data.py` + `tests/test.yaml`. Locally: `sed 's#C:/tools/stockfish/stockfish-windows-x86-64-avx2.exe#/usr/games/stockfish#' tests/test.yaml > tests/local.yaml`, venv `/tmp/claude-0/venv/bin/python`, delete local.yaml after. Fake games are engine-played: Maia fits hit the grid edge, you-vs-peers "within noise".
+- `python main.py --config configs/local/<you>.yaml [--list|--only a,b|--from x|--force x|--update|--skip-maia|--offline]`:
+  all stages, make-style (outputs newer than inputs are skipped; resumable passes always invoked). Writes
+  `data/logs/main_<time>.log` and rebuilds the hub `data/index.html` (every player's report, comparisons, logs).
+- `python refine.py --config ...`: compute pouring (level k = engine.nodes × 4^k on priority positions → opening
+  tree / repertoire deeper → more band data → all positions; `data/<set>/engine_L<k>/`, deepest wins in
+  `load_analyzed`; `refined=False` for comparisons with never-refined sets). Runs `main.py --update` (new games +
+  stale stages) at start, every 6 h and after each level.
+- Head-to-head: `python scripts/23_compare_players.py --config A --other B` → `data/compare/<a>_vs_<b>/report.html`.
+- Second player = small config with `extends: <first>.yaml` (see `configs/example_second_player.yaml`); quick
+  head-to-head mode: `configs/example_quick.yaml`.
+- Tests: fake data via `tests/make_fake_data.py` + `tests/test.yaml` (player `test_player`, opponent `someone`).
+  Locally: `sed 's#C:/tools/stockfish/stockfish-windows-x86-64-avx2.exe#/usr/games/stockfish#' tests/test.yaml > tests/local.yaml`
+  (ignored by git). Fake games are engine-played: Maia fits hit the grid edge, you-vs-peers "within noise".
+
+## Data layout (coach/config.py)
+`data/players/<username>/{player,openings,findings,imported}` per player · `data/population_<lo>_<hi>/` peers per
+Lichess band (+ `ideas/`), shared · `data/band_<lo>/` multi-band samples · `data/compare/` · `data/index.html`.
+The chess.com → Maia offset is fitted per player by 09b (`player/maia_offset.json`) and overrides the config.
 
 ## Pipeline (scripts/, numbered in run order; diagnostics/ = one-off checks)
-00 fetch chess.com games (whole history) · 01 mine Lichess peers 2000–2200 (dump streamed) · 01b peer results + status (Lichess API) · 01c Syzygy 3-4-5 · 02 Stockfish (1M nodes; `coach/runner.engine_pass`) · 03 settle lines (quiescence) · 05 feature deltas · 06 ideas (concept groups; NMF path kept for SAE) · 06c deepen no-swing tactics · 07/07b idea + tactics inspection · 08 player report · 09b Maia-3 P(best/played) over Elo grid 700–2500 + offset fit · 09c error anatomy · 09d Maia opponent model · 11 endgames (outcomes, tablebase) · 11b balanced endgames · 13 practical tree (3 plies, your follow-up modelled) · 14 openings (engine-only; book from dump per band) · 15 score accounting · 16 skill profile (Maia level + engine error ratio per category) · 17 multi-band (skill vs style) · 18 opening traps (layer 2) · 14b opening findings (per opening impact incl. moves 10–15, costly lines unless already fixed in the latest game, regressions over time, missed only-moves/punishments; `openings_evolution.html`) · 17b category findings (16+17 → tagged findings, Elo gain vs the next band up; endgame conversion) · 22 import games (PGN, e.g. OTB; `data/imported/`, per-game + per-phase ratings via `coach/game_rating.py`) · 20 report (aggregates `data/findings/*.json`: Summary + Opening/Middlegame/Endgame ordered by expected Elo gain, Exploitation, Games, Drills, Method; one interactive HTML `data/player/report.html` via `coach/webreport.py`: tabs, data-driven finding blocks with solid/lead/strength/style/info tags, step-through boards, puzzle mode; drill studies per weakness theme `drills_*.pgn`) · 19 repertoire ("your lines, extended": engine-best tree from his openings, keeps his move if within 2 pts, replies from book/Maia, Lichess study PGNs via `coach/study.py`).
-Diagnostics: 02b calibration, 06b line ends, 09a Maia probe, 10 checks, 11c clock, 12 practical value (step 2, superseded by 13).
-Shared code: `coach/runner.py`, `results.py` (load_analyzed), `categories.py`, `openings.py`, `maia.py` (+ maia_lists), `difficulty.py`, `stats.py`, `report.py` (HTML/SVG boards, hover end positions). `pos_id = "{source}:{game_id}:{ply}"` joins everything. Evals from the mover's POV; win prob = Lichess logistic; labels ok < 0.03 ≤ mistake ≤ 0.20 < blunder; critical = best beats 2nd by ≥ 0.10.
+00 fetch chess.com games · 01 mine Lichess peers for the band (dump streamed) · 01b peer results + status · 01c
+Syzygy 3-4-5 · 02 Stockfish (`coach/runner.engine_pass`) · 03 settle lines (quiescence) · 05 feature deltas · 06
+ideas (concept groups; NMF path kept for SAE) · 06c deepen no-swing tactics · 07/07b idea + tactics inspection · 08
+detailed player report (+ tactics findings) · 09b Maia-3 curves + offset fit · 09c error anatomy · 09d Maia opponent
+model · 11 endgames (outcomes, tablebase) · 11b balanced endgames · 13 practical tree · 14 openings (engine-only;
+book from the dump) · 14b opening findings · 15 score accounting · 16 skill profile · 17 multi-band (skill vs style;
+reuses any peer set covering a band) · 17b category findings · 18 opening traps · 19 repertoire ("your lines,
+extended", Lichess studies via `coach/study.py`) · 22 import PGN games · 20 report (aggregates findings: Summary +
+Opening/Middlegame/Endgame by expected Elo gain, Exploitation, Games, Drills, Method, Files) · 23 head-to-head.
+Shared code: `coach/` (runner, results, categories, openings, maia, difficulty, stats, findings, why, game_rating,
+webreport, hub, report, study). `pos_id = "{source}:{game_id}:{ply}"` joins everything. Evals from the mover's POV;
+win prob = Lichess logistic; ok < 0.03 ≤ mistake ≤ 0.20 < blunder; critical = best beats 2nd by ≥ 0.10.
 
 ## Method rules (why things are the way they are)
-- Peers: Lichess (bulk dump; Maia trained there); player: chess.com. "vs peers" only on games ≥ `player.min_player_rating` (1750); whole history for you-vs-yourself and Maia-relative measures (each game at its own level: Maia Elo = r + 160 − 0.10 (r − 1800) in Mack's local config).
-- "clear" = peer value outside your 90% game-bootstrap CI (+ ratio ≥ 1.25 / ≤ 0.8 and expected count ≥ 5 in 08). Many slices tested → treat borderline lower bounds as one lead.
-- **Never resigns**: lost/played-out positions rarely register errors → endgame / losing / low-clock error rates look too good. Prefer contested (0.2–0.8) rows; judge endgames by outcomes.
-- **Maia level ≠ accuracy**: it measures how human-like-at-Elo his choices are. Only call something a weakness when the engine agrees; Maia-only differences = style.
-- Peers have ~12 sampled positions per game (no per-move think time, no move-by-move execution); his data has every move.
-- Per-game averages vs pooled per-move rates can disagree (balanced-endgame "1.5×" vanished pooled). State the weighting.
-- Positional loss is not a skill metric (flat across ratings; rises in his history) → describes style.
-- Exploitation section: looser evidence, labelled exploratory.
+- Peers: Lichess (bulk dump; Maia trained there); player: chess.com. "vs peers" only on games ≥
+  `player.min_player_rating`; whole history for you-vs-yourself and Maia-relative measures (each game at its own
+  level via the fitted offset).
+- "clear" = peer value outside the player's 90% game-bootstrap CI (+ ratio ≥ 1.25 / ≤ 0.8, expected count ≥ 5 in
+  08). Many slices tested → treat borderline lower bounds as one lead.
+- Players who rarely resign: lost positions get played out and rarely register errors → endgame / losing /
+  low-clock error rates look too good (17b/20 detect it from game endings). Prefer contested (0.2–0.8) rows;
+  judge endgames by outcomes.
+- Maia level ≠ accuracy (human-likeness at an Elo). Call a weakness only when the engine agrees; Maia-only = style.
+- Peers have ~12 sampled positions per game; the player has every move.
+- Per-game averages vs pooled per-move rates can disagree: state the weighting.
+- Positional loss is not a skill metric (flat across ratings) → style.
+- Elo gain = 695 × expected score per game (win-prob loss as proxy; estimates overlap; upper bound).
+- Exploitation: looser evidence, labelled exploratory; individual opponents judged on RECENT play (a line counts
+  only if their latest visit still went wrong).
 
-## Current picture (real data; details + numbers in docs/status_log.md)
-- **Overall**: correctly rated, no big hole. Contested positions at par (error ratio 1.04); blunders par (1.89 vs 1.93 per 100). The peer band was calibrated to him, so par is expected.
-- **Real leads**: (1) critical positions while pressing / forcing best move / middlegame: error ratio 1.16–1.19 (clear), at par with ≥ 3 min on the clock → time + concrete shots; (2) rook endings with time: Maia −188, engine 1.45 [0.79, 2.15] (small n); (3) long thinks in easy positions go wrong (34% vs 7%).
-- **Strengths**: converts winning endgames (score 0.97 vs 0.88 by outcome); fewer one-move punishments (0.67×); Maia level high in critical/capture positions.
-- **Openings** (engine-only): no overall weakness out of the opening; fixable lines: Vienna 3.Bc4 Nf6 4.f4? (4.d3), vs King's Gambit take (2...exf4), 2.Nc3 Nc6 3.Nf3 ...Nf6 not ...Bc5, vs Vienna Gambit 4...g5. Score accounting: moves ~10–15 are his only net-losing phase (−0.035/game) but his per-move accuracy there is par → opponents' book knowledge.
-- **Time**: not a leak in results (9.8% of games end on time vs 9.5%); he reaches late phases with less clock than peers.
-- **Multi-band (17, Lichess bands 1698/1892/2083/2284/2586)**: overall level ~2137 by loss/100 (matches the earlier ~2100–2150 calibration), 2084 by blunders, 2191 by error rate. Error rates are flat 1700–2080 and drop above 2200 → linear fit driven by the top band; implied levels are rough. Relative to his all-moves level: critical −284 (pressing −347, capture/check −353, middlegame −342; with 3 min+ −193 error but blunders −19), contested middlegame −179, contested endgame −356 (wide CI); endgame +130 and losing positions are inflated by never resigning, so the all-moves anchor is too high (contested anchor ~1985–1990). Critical positions are his weakest category on every measure.
-- **Traps (18, opponents ~1959 → book band 1800–1999)**: his own 4.f4 in the Vienna (3.Bc4 Nf6 4.f4, −11.6 objectively) sees 57% of 1800–1999 Black players go wrong (book n 156) → objectively bad but practically unclear (his score 0.20 over 5 games). Caro-Kann exchange: Bf4 instead of Nf3 (+4.7 expected, cost 0.3; Maia-based) — relevant since he scores 0.41 vs the Caro. Most B baits are Maia-based (less reliable than book).
-- **Exploitation**: Maia opponent model calibrated (Brier skill +44%); predicted trap value matches realized; 13's model of his own follow-ups validated (follow-up in Maia's list 90%; predicted 45.5 vs realized 46.2) but you ≈ peers → generic until an individual model exists.
-
-## Open / next
-- main.py ran end to end on his machine (2026-11-18, 1.8 h; 17 + 18 new). Next: refine.py when the PC is free.
-- Report plan (decided, `docs/report_design.md`): option A = one self-contained interactive HTML (inline JS: tabs, step-through boards, puzzle mode), drills as several Lichess studies (one theme each), rating estimates + per-game/phase rating (future: single-game upload tab, `docs/future_work.md`). Step 1 done: 19 repertoire (ran on real data: ~295 positions/colour; chapters widened since). Report v2 (2026-11-18, Mack's feedback: v1 not usable — wanted high-level, three phase sections ordered by Elo gain, weaknesses only, opening focus on what he struggles with (Caro-Kann), not known traps): built findings registry + 14b/17b/22 + report v2 + puzzle "why" (`coach/why.py`, feature deltas) + tactics findings from 08 + refine runs `main.py --update` (new games + stale stages) at start, every 6 h and after each level. Fake data only. Elo gain = 695 × expected score per game (win-prob loss as proxy; overlapping; upper bound). Next: Mack's feedback on v2.
-- Parked ideas: `docs/future_work.md` (time management model and clean-endgame plan execution are next candidates).
-
-## Environment
-- Mack: Windows 10, PowerShell, Python 3.12 `.venv`, repo `D:\chess\chess-coach\chess-coach`, Ryzen 5 3600 (engine.workers 10), GTX 1660 Super (Maia ~200 passes/s). His `configs/v0.yaml` has local values (paths, offset 160/−0.10); he pulls with `git pull --no-edit origin claude/inspiring-bohr-c5jekh`.
+## Conventions
 - Windows-safe multiprocessing (`__main__` guards, top-level workers, `mp.freeze_support()`), pathlib everywhere.
-- Cloud session env `chess-coach` allows huggingface.co (Maia weights), tablebase.lichess.ovh, explorer.lichess.ovh (explorer now needs a token; unused). lichess.org API not reachable here.
-- Branch: `claude/inspiring-bohr-c5jekh`. Commits end with the attribution lines; no PRs unless asked.
-
-## Working with Mack
-- Direct, casual tone; no corporate phrasing.
-- Prefer targeted edits; give exact PowerShell commands, one per block.
-- Point out specific flaws; don't overstate results; retract clearly when a finding doesn't hold.
-- Math in LaTeX.
-- He runs everything on Windows himself. No script-runner files unless he asks (main.py/refine.py were requested).
+- Prefer targeted edits; exact commands (PowerShell for the Windows user) one per block; point out flaws, don't
+  overstate results, retract clearly; math in LaTeX.
+- `pyflakes coach scripts main.py refine.py` clean and a fake-data run before pushing.
