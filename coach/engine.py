@@ -309,6 +309,25 @@ class Analyzer:
             keep.append((played, win_prob(_cp(info["score"], me))))
         return keep, cands[0][0]
 
+    def move_values(self, fen: str, moves: list[str], nodes: int, multipv: int = 3):
+        """Top `multipv` moves plus every move in `moves`, each with its win prob for the side
+        to move. Returns (best_uci, {uci: wp}) sorted best first."""
+        b = chess.Board(fen)
+        me = b.turn
+        game = object()
+        infos = self._analyse(b, nodes, game, multipv=min(multipv, b.legal_moves.count()))
+        vals = {i["pv"][0].uci(): win_prob(_cp(i["score"], me)) for i in infos if i.get("pv")}
+        best = next(iter(vals), None)
+        for u in moves:
+            if u in vals:
+                continue
+            mv = chess.Move.from_uci(u)
+            if mv not in b.legal_moves:
+                continue
+            info = self._analyse(b, nodes, game, root_moves=[mv])
+            vals[u] = win_prob(_cp(info["score"], me))
+        return best, dict(sorted(vals.items(), key=lambda kv: -kv[1]))
+
     def expand(self, fen: str, prefix: list[str], moves: list[str], nodes: int, root_eval: bool = True):
         """Push `prefix`, then value the position (if root_eval) and each move in `moves` (plus the
         engine's best when root_eval). Values = win prob for the side to move at `fen`.
