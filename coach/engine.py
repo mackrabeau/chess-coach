@@ -326,7 +326,8 @@ class Analyzer:
                 continue
             info = self._analyse(b, nodes, game, root_moves=[mv])
             vals[u] = win_prob(_cp(info["score"], me))
-        return best, dict(sorted(vals.items(), key=lambda kv: -kv[1]))
+        vals = dict(sorted(vals.items(), key=lambda kv: -kv[1]))
+        return next(iter(vals), best), vals      # best = highest value (searches can disagree slightly)
 
     def expand(self, fen: str, prefix: list[str], moves: list[str], nodes: int, root_eval: bool = True):
         """Push `prefix`, then value the position (if root_eval) and each move in `moves` (plus the

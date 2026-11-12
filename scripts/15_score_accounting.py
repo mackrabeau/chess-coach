@@ -139,7 +139,7 @@ def main() -> None:
     A["termination"] = A.game_id.map(term).fillna("unknown")
     A["year"] = A.date.astype(str).str[:4]
     check = (A.drop(columns=["game_id", "S", "rating", "date", "first_ply", "last_clock", "wp_last",
-                             "termination", "year"]).sum(1) - (A.S - 0.5)).abs().max()
+                             "termination", "year"]).sum(axis=1) - (A.S - 0.5)).abs().max()
     recent = A[A.rating >= cmp_min]
     L = [f"{len(A):,} games with results ({len(recent):,} at >= {cmp_min}); telescoping check max error {check:.1e}",
          f"first analysed move at ply {recent.first_ply.median():.0f} (median); "
