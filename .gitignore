@@ -4,3 +4,5 @@ __pycache__/
 .venv/
 tests/data/
 /stockfish
+tests/local.yaml
+tests/someone.yaml

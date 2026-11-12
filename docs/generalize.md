@@ -2,6 +2,12 @@
 
 Kept up to date as we go. Each item: what is specific, where, and what a general version needs.
 
+## Multi-player (2026-11-18)
+- Per-player data in `data/players/<username>/` (player, openings, findings, imported), peers per band in
+  `data/population_<lo>_<hi>/` (shared), configs inherit with `extends:`; the Maia offset is fitted per
+  player by 09b (`maia_offset.json`) and overrides the config. A second player = a 10-line config.
+- Still single-user per config: `player.username`, chess.com only.
+
 ## Data source and identity
 - **chess.com only** for the player (`coach/fetch_chesscom.py`, `00_fetch_player.py`, `15` terminations,
   `coach/openings.player_tree`). A Lichess player would need a Lichess fetcher producing the same

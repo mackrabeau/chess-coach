@@ -27,7 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-from coach.config import load_config, resolve  # noqa: E402
+from coach.config import load_config, resolve, scope_path  # noqa: E402
 
 
 @dataclass
@@ -111,22 +111,29 @@ STAGES = [
 ]
 
 
-def newest(data: Path, globs) -> float:
-    ts = [p.stat().st_mtime for g in globs for p in data.glob(g)]
-    return max(ts, default=0.0)
+def hits(cfg, g: str) -> list[Path]:
+    """Files for a stage glob like 'player/x.parquet' or '*/deltas.npz' (player and peers),
+    resolved through the per-player / per-band layout (coach/config.scope_path)."""
+    first, _, rest = g.partition("/")
+    bases = [scope_path(cfg, "player"), scope_path(cfg, "population")] if first == "*" else [scope_path(cfg, first)]
+    return [p for b in bases for p in b.glob(rest)]
 
 
-def oldest(data: Path, globs) -> float | None:
+def newest(cfg, globs) -> float:
+    return max((p.stat().st_mtime for g in globs for p in hits(cfg, g)), default=0.0)
+
+
+def oldest(cfg, globs) -> float | None:
     ts = []
     for g in globs:
-        hits = list(data.glob(g))
-        if not hits:
+        h = hits(cfg, g)
+        if not h:
             return None                      # an output is missing
-        ts += [p.stat().st_mtime for p in hits]
+        ts += [p.stat().st_mtime for p in h]
     return min(ts)
 
 
-def status(st: Stage, data: Path) -> str:
+def status(st: Stage, data) -> str:
     if st.always:
         return "resumable (always invoked; no-op when done)"
     out = oldest(data, st.outputs)
@@ -150,7 +157,8 @@ def main() -> None:
     ap.add_argument("--keep-going", action="store_true", help="continue after a failed stage")
     args = ap.parse_args()
     cfg = load_config(args.config)
-    data = resolve(cfg, cfg["paths"]["data_dir"])
+    data = cfg                     # status() resolves globs through the per-player layout
+    root = resolve(cfg, cfg["paths"]["data_dir"])
     names = [s.name for s in STAGES]
     stages = STAGES
     if args.only:
@@ -173,7 +181,7 @@ def main() -> None:
             print(f"  {s.name:20s} {s.script:28s} {status(s, data)}{tag}")
         return
 
-    log_dir = data / "logs"
+    log_dir = root / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"main_{time.strftime('%Y%m%d_%H%M%S')}.log"
     log = open(log_path, "w", encoding="utf-8")
@@ -220,7 +228,7 @@ def main() -> None:
         else:
             say(f"   {s.name} done in {(time.time() - t0) / 60:.1f} min")
     say(f"\nall done in {(time.time() - t_all) / 3600:.2f} h" + (f"; failed: {', '.join(failed)}" if failed else ""))
-    say(f"reports: {data / 'player'} (*.html), {data / 'ideas'} (*.html)")
+    say(f"reports: {scope_path(cfg, 'player')} (report.html + detailed *.html)")
     say(f"log: {log_path}")
 
 
