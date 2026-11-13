@@ -16,6 +16,80 @@ Ideas worth exploring that aren't built yet, roughly grouped. Each: what, why, h
   chess models), then test candidate groupings with 24's machinery (peer-calibrated O/E + temporal holdout):
   a grouping is good if it's nameable AND its player residuals replicate across time.
 - Risk: more concepts = more multiple-comparison noise; 24's shrinkage + holdout must stay the gate.
+- First try (2026-11-12, stage 25 `clusters`): k-means (k=32) on Maia-3 23m block-3 hidden states averaged over
+  squares, fixed Elo 1900, fitted on all peer bands, your positions matched. Held-out peer log-loss gain over 24's
+  features +1.7e-4 [-8.1, +13.0] (a permuted label of the same size costs ~-30e-4; readable-feature k-means
+  -8e-4): the clusters are redundant with 24's features, not noise. Naming rules are material / move number /
+  queens slices (F1 mostly 0.3-0.6; rook endings 0.80). Square-averaging likely throws away the spatial pattern.
+  Next variants: `--layer -1`, a later block, k=64; per-square or attention-based pooling; then an SAE.
+  `--layer -1` (final pooled vector): gain +34.9e-4 [+18.8, +48.4] but positive in only 3 of 5 bands, and the
+  rules lean on win chance / critical / legal moves = a difficulty signal, not nameable patterns. Verdict:
+  position clustering is retired as a concept source.
+- **Rethink (2026-11-12, second research round): concepts = named line patterns.** Opportunity (best line has
+  pattern X, 2nd-best doesn't, gap ≥ 0.05; label confidence from that gap + agreement at 4× nodes) → choice
+  (played move starts X; record the alternative chosen) → cost (win prob lost when declining). Estimand: uptake
+  vs a peer logistic model with difficulty / rating / clock as controls; rating slope of peer uptake decides
+  skill (Elo) vs style (no Elo claim); Elo ≈ $695 \cdot f \cdot \delta \cdot \bar c$ (opportunities per game ×
+  shrunk uptake deficit × mean cost when declined). Reverse errors (greedy grab, premature queen trade, unsound
+  sac) use 24's observed / expected event path. Peer frequencies on settled lines (2000–2200 band): any
+  sacrifice 1.25% of positions (uptake 58%), endgame pawn sac 0.25%, pawn break 180 / 17k (49%, rising
+  0.28 → 0.75 across bands vs 0.42 → 0.55 for best-move rate), queen trade 562 (73%), endgame king walk 139 (78%).
+  Next steps, ranked:
+  1. Settle the extra bands (03 on `band_*`, register in main.py; ~20–40 min); 24 should load settled lines.
+  2. `coach/linepatterns.py`: per-ply replay of best / 2nd / played lines (material trajectory, move events,
+     existing motifs) → ~13 rule-defined patterns, each with an advice sentence; unit tests, ≥ 85% precision
+     by eye on sampled boards, a negative-control pattern.
+  3. Maia difficulty (P(best), entropy) as a stage-1 control in 24 (~5 min GPU).
+  4. Uptake model + honest gate in 24: family → pattern shrinkage, MDE column, peer bootstrap in
+     `calibration()`, BH, simulated null for the holdout correlation, injected-effect test.
+  5. Label stability: re-search a sample at 4× nodes (flip rate < 25%).
+  6. Mine ~3× more peers (per-band opportunity counts of 10–90 are the real limit).
+  7. Report wording; later, PrefixSpan mining of peer lines as a candidate generator only.
+- **Built (2026-11-13, steps 1–5)**: `settle-bands` stage (03 `--set bands`); 24 on settled lines + Maia
+  difficulty control; `coach/linepatterns.py` (15 rules incl. negative control `ctrl_light_square`,
+  `<set>/linepatterns.parquet`); uptake model + gate in 24; `scripts/diagnostics/lp_stability.py` (4× nodes).
+  - Precision by eye (Sonnet reviewers, ~20 peer opportunities per pattern, 3 rounds of rule fixes): ≥ 85%
+    retreat, quiet_defence, passer_push, forcing_checks; 75–80% queen_trade, pawn_break, king_activation, fork;
+    below 70% (exploratory, never claimed): sacrifices (35–55%), line_tactic 50%, simplify_ahead 35%. The
+    sacrifice rules fail on exchanges/desperados read as sacs and on lines that still end mid-tactic; a
+    sacrifice needs a "voluntary + compensation" test the material trajectory alone doesn't give (try:
+    the sacrificed piece was safe before the move, the 2nd line keeps it, eval holds at 4× nodes).
+  - Stability at 4× nodes (25 per pattern): overall flip rate 28% (target < 25%); ≤ 24% only for
+    forcing_checks, fork, quiet_defence, retreat; queen_trade / pawn_break 32%, king_activation 56% (n 9).
+  - First real run: no family passes the gate (an overall decline ratio and two families are leads only;
+    numbers in `docs/local/status_log.md`); the negative control includes 1.
+  - Peer opportunities are the binding limit: ~2,200 over 5 bands (~7 per 100 positions with the control
+    excluded); the player ~1,300 inside the band range. Injected ×1.5 decline rate is found 60–90% of the
+    time per family, the king family (44 opportunities) only ~7%. Results: `docs/local/status_log.md`.
+  - Next: (a) mine more peers (step 6) — every family is under-powered at pattern level; (b) better sacrifice
+    rules (above); (c) reverse errors (rows with opportunity False, took True) via 24's O/E path;
+    (d) peer bootstrap for the concept calibration too (only the line-pattern path has it).
+
+### Position clusters for puzzles (2026-11-12) — status: built (stage 25), exploratory
+- What: stage 25 now picks puzzles. It groups the player's critical errors (whole history) into recurring kinds of
+  position and drills a few representative, non-duplicate ones per group, plus "more like this" peer positions
+  from the same cluster. Clusters decide WHICH positions to drill. Line patterns (Concept groups) decide WHAT to
+  train. Clusters make no concept, weakness or Elo claims.
+- How: Maia-3 block-3 states at Elo 1900, "move" pooling = [square mean, best move's from-square, to-square];
+  k=64 k-means on his critical errors + peers' critical positions; sets ranked by total win prob lost; inside a
+  set `coach.clusters.pick_puzzles` (typical + recent + costly, one per game / board / opening line, embedding
+  distance) picks 12; peers' cluster-mates (cost = gap to the 2nd move) give 8 more. Output: in-depth items +
+  `player/clusters_drills_*.pgn`.
+- Judged only by coherence: pairwise tag agreement vs size-matched random sets (`coherence()`), plus a blind
+  eyeball check. First real run: the sets are "same piece moves the solution" (99.6% vs 18%) × move kind ×
+  phase, not tactic motifs (motif 40% vs 35%). Blind reviewers called all 6 top sets partly/yes and both random sets
+  no ("Pawn push hits a piece" 11/12, "Knight tactics" 10/12). Good enough for drill selection, but the names are
+  shallow.
+- Next:
+  1. Once `linepatterns.parquet` exists, add the pattern as a coherence label and try sets = pattern × cluster
+     (the pattern names the set; the cluster splits a big pattern into position types; `pick_puzzles` picks).
+  2. Pooling without the piece identity (e.g. the to-square state only, or the state minus its token's piece
+     embedding), so clusters follow what the move does rather than which piece moves.
+  3. Better set names from the eyeball labels: a small rule on the best line (hits a piece with tempo, check,
+     capture, retreat) would cover most of what the reviewers named.
+  4. Closed loop: re-run after he drills a set and track whether the set's errors per 100 moves fall (puzzle
+     selection only; any Elo claim still goes through 24).
+  5. Attention pooling or an SAE only if 1-3 still leave the sets shallow.
 
 ### Time management model (2026-11-17) — status: designed, not built
 - **Why**: critical positions with a forcing move while pressing are missed more than peers only with

@@ -13,9 +13,22 @@
              strength = CI below 1 · diagnostic concepts (all positions per phase) are context only.
   elo        695 x excess win-prob loss per game (shrunk; upper bound); rank = elo x trainability.
 
+  controls   + Maia-3 difficulty at the mover's own Elo (P(engine best move), policy entropy), cached per set
+             in <set>/maia_difficulty.parquet (--no-maia: left out). Lines are the settled ones (03).
+  4. line patterns (coach/linepatterns.py; <set>/linepatterns.parquet): opportunity = best line has a named
+             pattern, 2nd-best doesn't (gap >= 0.05); peer model P(took | controls, rating, pattern), 5-fold
+             cross-fit + per-pattern calibration with a peer-game bootstrap; your declines observed / expected
+             relative to your overall decline ratio, shrunk family -> pattern; 90% CI (your games x peer
+             calibration draws), MDE, BH q over families, older/newest games, peer rating slope (skill vs style).
+             Gate: family finding = CI excludes 1, q < 0.10, both halves agree, label precision >= 85% and (for a
+             weakness) a positive rating slope; else a lead. Patterns below 70% precision are exploratory; the
+             negative control must come out ~1. --null-sims: simulated null players for the holdout correlation
+             (shared peer-calibration noise), the gate's false-positive rate and an injected x1.5 effect.
+
     python scripts/24_weakness_model.py --config configs/v0.yaml
 
-Output: player/weakness_model.parquet, player/weakness_validation.json, findings/weakness.json
+Output: player/weakness_model.parquet, player/weakness_validation.json, player/linepatterns_uptake.parquet,
+player/linepatterns_validation.json, findings/weakness.json
 """
 from __future__ import annotations
 
@@ -32,49 +45,17 @@ import pandas as pd
 
 from coach.bands import resolve_sets, settings
 from coach.config import data_dir, load_config
-from coach.findings import ELO_PER_SCORE, example, finding, write
-from coach.results import load_analyzed
-from coach.weakness import (TRAIN, PeerModel, calibration, concepts, crossfit, eb_alpha, expected, per_game,
-                            prepare, shrink)
+from coach.findings import example, finding, write
+from coach.linepatterns import (CLAIM_PRECISION, CONTROL, FAMILIES, LEAD_PRECISION, PATTERNS, PRECISION,
+                                pattern_table)
+from coach.weakness import (TRAIN, PeerModel, UptakeModel, calibration, concepts, crossfit, excess, expected,
+                            load_set, null_checks, opportunities, rating_slopes, up_calibration, up_crossfit,
+                            uptake_gate)
 
 B = 500
 MIN_EXP = 3.0       # expected (relative) count below this: too rare to judge
 MIN_PEERS = 2000    # peer positions needed to fit stage 1 (5 folds of gradient boosting)
-
-
-def load(cfg, which, workers):
-    try:
-        df = load_analyzed(cfg, which, raw_lines=True, refined=False)   # same depth for everyone
-    except FileNotFoundError:
-        return None
-    return prepare(cfg, df, which, workers)
-
-
-def stats(df, pred, cs, cal):
-    """games x (4 per concept + 4 overall) sums, and game ids."""
-    cols = []
-    for c in cs:
-        cols += list(expected(df, pred, c, cal))
-    cols += [df.err.to_numpy(float), pred.p_err.to_numpy(), df.wp_loss.to_numpy(float), pred.l_hat.to_numpy()]
-    return per_game(df, cols)
-
-
-def summarize(S, K, n_games, alpha=None, fit=None):
-    """S: (..., 4K+4) sums -> dict of arrays (relative ratio raw/shrunk, elo, E').
-    alpha None: fitted on the concepts where `fit` is True (non-diagnostic; they overlap less)."""
-    S = np.atleast_2d(S)
-    O, E, Lo, Le = (S[:, j:4 * K:4] for j in range(4))
-    Oa, Ea, La, Lea = (S[:, 4 * K + j][:, None] for j in range(4))
-    th, la = Oa / np.maximum(Ea, 1e-9), La / np.maximum(Lea, 1e-9)
-    Er, Ler = th * E, la * Le
-    fit = np.ones(K, bool) if fit is None else fit
-    a = eb_alpha(O[0][fit], Er[0][fit]) if alpha is None else alpha
-    ratio = shrink(O, Er, a)
-    w = Er / (Er + a)
-    rho_l = 1 + w * (Lo / np.maximum(Ler, 1e-12) - 1)
-    elo = ELO_PER_SCORE * Ler * (rho_l - 1) / max(n_games, 1)
-    return {"O": O, "Er": Er, "raw": O / np.maximum(Er, 1e-9), "ratio": ratio, "elo": elo,
-            "theta": th[:, 0], "alpha": a}
+Q_MAX = 0.10        # Benjamini-Hochberg level for line-pattern family claims
 
 
 def validate(peers, oof):
@@ -93,20 +74,181 @@ def validate(peers, oof):
     return out
 
 
+# ------------------------------------------------------------------ line patterns (coach/linepatterns.py)
+def gate_labels(res, slopes, info):
+    """label per row: finding (weakness / strength) | lead | noise | exploratory | control.
+    Tests use the RAW ratio's 90% CI (the shrunk CI is degenerate when alpha hits the grid top; shrunk ratios
+    give the size and the Elo). Family finding = raw CI excludes 1 AND BH q < Q_MAX AND older / newest games agree AND precision
+    >= CLAIM_PRECISION AND (for a weakness) peer uptake rises with rating (skill; else style, no Elo).
+    A family missing any of these but with a CI excluding 1 is a lead; patterns are at most leads."""
+    labels, notes = [], []
+    for r in res.itertuples():
+        weak, strong = r.raw_lo > 1, r.raw_hi < 1
+        prec = PRECISION.get(r.pattern) if r.level == "pattern" else r.precision
+        sl = slopes.get(r.family if r.level == "family" else r.pattern, (np.nan,) * 4)
+        why = []
+        if r.pattern == CONTROL:              # outside theta's set: judged on the absolute scale (raw x theta)
+            lo, hi = r.raw_lo * info["theta"], r.raw_hi * info["theta"]
+            labels.append("control FAILED" if (lo > 1 or hi < 1) else "control")
+            notes.append(f"negative control, absolute ratio {r.ratio_raw * info['theta']:.2f} [{lo:.2f}, {hi:.2f}] "
+                         f"must include 1")
+            continue
+        if r.level == "pattern" and (prec is None or prec < LEAD_PRECISION):
+            labels.append("exploratory")
+            notes.append(f"precision {prec:.0%} < {LEAD_PRECISION:.0%}")
+            continue
+        if not (weak or strong):
+            labels.append("noise")
+            notes.append(f"CI includes 1; MDE {r.mde:.2f}")
+            continue
+        up = 1 if weak else -1
+        holds = r.old_exp >= MIN_EXP and r.new_exp >= MIN_EXP and np.sign(r.old_ratio - 1) == up \
+            and np.sign(r.new_ratio - 1) == up
+        if not (r.q < Q_MAX):
+            why.append(f"BH q {r.q:.2f}")
+        if not holds:
+            why.append("not in both older and newest games")
+        if prec < CLAIM_PRECISION:
+            why.append(f"precision {prec:.0%}")
+        if weak and not (sl[1] > 0):
+            why.append("no rating slope (style)")
+        if r.level == "pattern":
+            why.append("pattern level (n too small for a claim)")
+        labels.append(("weakness" if weak else "strength") if not why else "lead")
+        notes.append("; ".join(why))
+    res["label"], res["note"] = labels, notes
+    return res
+
+
+def line_patterns(cfg, peers, me, args):
+    """Uptake of named line patterns vs a peer model; writes player/linepatterns_uptake.parquet +
+    linepatterns_validation.json, returns findings."""
+    parts = []
+    for name, d in peers.groupby("band"):
+        parts.append(pattern_table(cfg, name, d, args.workers))
+    o_peer = opportunities(peers, pd.concat(parts, ignore_index=True))
+    o_me = opportunities(me, pattern_table(cfg, "player", me, args.workers))
+    print(f"\nline patterns: {len(o_peer):,} peer opportunities, {len(o_me):,} yours")
+    if len(o_peer) < 500 or len(o_me) < 50:
+        print("  too few opportunities for the uptake model; skipped")
+        return []
+    patterns = list(PATTERNS)
+    good = [q for q in patterns if q != CONTROL and PRECISION.get(q, 0) >= LEAD_PRECISION]
+    families = {f: [q for q in good if PATTERNS[q][0] == f] for f in FAMILIES}
+    families = {f: qs for f, qs in families.items() if qs}
+    inc = [patterns.index(q) for q in good]
+    p_oof = up_crossfit(o_peer, patterns)
+    c_point, c_boot = up_calibration(o_peer, p_oof, patterns)
+    model = UptakeModel().fit(o_peer, patterns)
+    p_me = model.predict(o_me)
+    dec = o_peer[~o_peer.took.astype(bool)]
+    peer_cost = dec.groupby("pattern").cost.mean().to_dict()
+    peer_cost.update({f: dec[dec.pattern.isin(qs)].cost.mean() for f, qs in families.items()})
+    res, info = uptake_gate(o_me, p_me, patterns, families, c_point, c_boot, inc, B, peer_cost=peer_cost)
+    prec_f = {f: float(np.average([PRECISION[q] for q in qs],
+                                  weights=[max(1, (o_me.pattern == q).sum()) for q in qs])) for f, qs in families.items()}
+    res["precision"] = [prec_f.get(r.family) if r.level == "family" else PRECISION.get(r.pattern, np.nan)
+                        for r in res.itertuples()]
+    slopes = rating_slopes(o_peer, {**families, **{q: [q] for q in patterns}}, B=args.slope_boot)
+    res["peer_uptake"] = [o_peer[o_peer.pattern.isin(families[r.family] if r.level == "family" else [r.pattern])]
+                          .took.mean() for r in res.itertuples()]
+    res["peer_n"] = [int(o_peer.pattern.isin(families[r.family] if r.level == "family" else [r.pattern]).sum())
+                     for r in res.itertuples()]
+    key = [r.family if r.level == "family" else r.pattern for r in res.itertuples()]
+    res["slope"], res["slope_lo"], res["slope_hi"] = ([slopes.get(k, (np.nan,) * 4)[j] for k in key] for j in range(3))
+    res = gate_labels(res, slopes, info)
+    if args.null_sims:
+        nc = null_checks(o_me, p_me, patterns, families, c_point, c_boot, inc, info["theta"], S=args.null_sims)
+        hn = np.array(nc["holdout_null"])
+        info.update({"holdout_null_mean": float(hn.mean()), "holdout_null_p95": float(np.percentile(hn, 95)),
+                     "holdout_null_p": float((hn >= info["holdout_corr"]).mean()) if info["holdout_corr"] == info["holdout_corr"] else None,
+                     "false_positive_rate": nc["false_positive_rate"], "inject": nc["inject"],
+                     "detection": nc["detection"]})
+    P = data_dir(cfg, "player")
+    res.to_parquet(P / "linepatterns_uptake.parquet", index=False)
+    info.update({"precision": PRECISION, "families": families, "peer_opportunities": int(len(o_peer)),
+                 "peer_oof_decline_factors": dict(zip(patterns, map(float, c_point)))})
+    (P / "linepatterns_validation.json").write_text(json.dumps(info, indent=1, default=float), encoding="utf-8")
+
+    print(f"  overall decline ratio theta {info['theta']:.2f} [{info['theta_lo']:.2f}, {info['theta_hi']:.2f}] "
+          f"(you vs peers at your rating on the same opportunities; rows below are relative to it); "
+          f"shrinkage alpha family {info['alpha_family']:.0f}, pattern {info['alpha_pattern']:.0f}")
+    hc = info.get("holdout_corr")
+    if hc == hc and hc is not None:
+        print(f"  holdout correlation (older vs newest games, {info['holdout_n']} patterns): {hc:+.2f}"
+              + (f"; simulated null mean {info['holdout_null_mean']:+.2f}, 95th pct {info['holdout_null_p95']:+.2f}"
+                 if "holdout_null_mean" in info else ""))
+    if "detection" in info:
+        print(f"  gate false-positive rate per family (null players) {info['false_positive_rate']:.1%}; "
+              f"injected x{info['inject']} decline rate found: "
+              + ", ".join(f"{f} {v:.0%}" for f, v in info["detection"].items()))
+    print(f"  theta older 70% of games {info['theta_old']:.2f}, newest 30% {info['theta_new']:.2f}")
+    print(f"  {'':10s}{'family / pattern':24s} {'opp':>5s} {'peer':>6s} {'raw [90% CI]':>18s} {'shrunk':>6s} "
+          f"{'MDE':>5s} {'slope':>6s} {'Elo':>6s}  label")
+    for r in res.itertuples():
+        nm = r.family if r.level == "family" else "  " + r.pattern
+        print(f"  {r.level:10s}{nm:24s} {r.n_opp:5d} {r.peer_uptake:6.0%} "
+              f"{r.ratio_raw:4.2f} [{r.raw_lo:4.2f}, {r.raw_hi:4.2f}] {r.ratio:6.2f} {r.mde:5.2f} {r.slope:+6.2f} "
+              f"{r.elo:+6.1f}  "
+              f"{r.label}{' (' + r.note + ')' if r.note else ''}")
+
+    items = []
+    for r in res[(res.level == "family") & res.label.isin(["weakness", "strength", "lead"])].itertuples():
+        weak = r.ratio > 1
+        qs = families[r.family]
+        sub = o_me[o_me.pattern.isin(qs)]
+        section = sub.ph.mode().iat[0] if len(sub) else "middlegame"
+        tag = {"weakness": "solid", "strength": "strength", "lead": "lead"}[r.label]
+        elo = max(r.elo, 0.0) if r.label == "weakness" else None
+        advice = " ".join(PATTERNS[q][1] for q in qs)
+        claim = (f"When the engine's best line {'/'.join(q.replace('_', ' ') for q in qs)}, you "
+                 f"{'pass it up more' if weak else 'take it more'} than a Lichess player at your rating in the "
+                 f"same spots: <b>{r.ratio_raw:.2f}×</b> the expected declines [{r.raw_lo:.2f}, {r.raw_hi:.2f}] "
+                 f"({r.declined:.0f} vs {r.expected:.1f}; raw uptake gap {100 * (r.declined - r.expected) / r.n_opp:+.0f} "
+                 f"points, detectable ≥ {100 * r.mde:.0f}; shrunk {r.ratio:.2f}×). Older games {r.old_ratio:.2f}×, newest 30% {r.new_ratio:.2f}×."
+                 + (f" Lead only: {r.note}." if r.label == "lead" else ""))
+        ev = {"header": ["measure", "value"],
+              "rows": [["opportunities (per game)", f"{r.n_opp} ({r.per_game:.2f})"],
+                       ["peer uptake / rating slope per 100", f"{r.peer_uptake:.0%} / {r.slope:+.2f} [{r.slope_lo:+.2f}, {r.slope_hi:+.2f}]"],
+                       ["declines observed / expected", f"{r.declined:.0f} / {r.expected:.1f}"],
+                       ["ratio raw (90% CI) → shrunk, BH q", f"{r.ratio_raw:.2f} [{r.raw_lo:.2f}, {r.raw_hi:.2f}] → {r.ratio:.2f}, q {r.q:.2f}"],
+                       ["Elo (upper bound, 90% CI)", f"{r.elo:+.1f} [{r.elo_lo:+.1f}, {r.elo_hi:+.1f}]"],
+                       ["label precision by eye", f"{r.precision:.0%}"]]}
+        exs, drill = [], None
+        cand = sub[~sub.took.astype(bool)].assign(wp_loss=lambda d: d.cost)
+        if weak and len(cand):
+            try:
+                from coach.clusters import pick_puzzles
+                pick = pick_puzzles(cand, k=min(args.max_drill, 12))
+            except ImportError:
+                pick = cand.sort_values("cost", ascending=False).head(12)
+            exs = [example(x.fen, x.best_line, x.played_line, f"{x.date} · {x.pattern.replace('_', ' ')} · "
+                           f"lost {100 * x.cost:.0f} points", x.pos_id) for x in pick.head(3).itertuples()]
+            drill = {"theme": f"Line pattern: {r.family}", "pos_ids": pick.pos_id.tolist()}
+        items.append(finding(f"lp:{r.family}", section, f"Line patterns: {r.family}", claim, tag, elo,
+                             "695 × opportunities/game × shrunk uptake deficit × mean cost when declined (upper bound)"
+                             if elo is not None else "", ev, exs, drill, advice, None,
+                             elo * min(1.0, r.per_game * 10) if elo is not None else None))
+    return items
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="configs/v0.yaml")
     ap.add_argument("--workers", type=int, default=None)
     ap.add_argument("--max-drill", type=int, default=64)
+    ap.add_argument("--no-maia", action="store_true", help="no Maia difficulty control (no GPU pass)")
+    ap.add_argument("--null-sims", type=int, default=200,
+                    help="simulated null players for the line-pattern gate checks (0 = skip)")
+    ap.add_argument("--slope-boot", type=int, default=200, help="bootstrap draws for peer rating slopes")
     args = ap.parse_args()
     cfg = load_config(args.config)
-    rng = np.random.default_rng(0)
 
     # ---- peers
     sets = resolve_sets(cfg, settings(cfg))
     parts = []
     for name, (lo, hi) in sets:
-        d = load(cfg, name, args.workers)
+        d = load_set(cfg, name, args.workers, not args.no_maia)
         if d is None or not len(d):
             print(f"  {name}: no engine results, skipped")
             continue
@@ -134,7 +276,7 @@ def main() -> None:
     model = PeerModel().fit(peers)
 
     # ---- player
-    me = load(cfg, "player", args.workers)
+    me = load_set(cfg, "player", args.workers, not args.no_maia)
     if me is None:
         sys.exit("no player engine results")
     keep = (me.r >= r_lo) & (me.r <= r_hi)
@@ -143,48 +285,18 @@ def main() -> None:
     me = me[keep].reset_index(drop=True)
     pred = model.predict(me)
     cs = concepts(me)
-    K = len(cs)
-    gids, M = stats(me, pred, cs, cal)
-    G = len(gids)
-    pt = summarize(M.sum(0), K, G, fit=np.array([c["kind"] != "diagnostic" for c in cs]))
-    alpha = pt["alpha"]
-    W = np.stack([np.bincount(rng.integers(0, G, G), minlength=G) for _ in range(B)])
-    bs = summarize(W @ M, K, G, alpha)
-
-    # temporal holdout: older 70% of games vs newest 30%
-    gdate = me.groupby("game_id").date.min().reindex(gids).to_numpy()
-    order = np.argsort(gdate, kind="stable")
-    cut = int(0.7 * G)
-    old, new = np.zeros(G, bool), np.zeros(G, bool)
-    old[order[:cut]], new[order[cut:]] = True, True
-    tr = summarize(M[old].sum(0), K, old.sum(), alpha)
-    ts = summarize(M[new].sum(0), K, new.sum(), alpha)
-
-    print(f"\noverall: you make {pt['theta'][0]:.2f}x the errors of a Lichess player at your mapped rating "
-          f"in the same positions (90% CI {np.percentile(bs['theta'], 5):.2f}-{np.percentile(bs['theta'], 95):.2f}); "
+    res, info = excess(me, pred, cs, cal, B, MIN_EXP)
+    alpha = info["alpha"]
+    print(f"\noverall: you make {info['theta']:.2f}x the errors of a Lichess player at your mapped rating "
+          f"in the same positions (90% CI {info['theta_lo']:.2f}-{info['theta_hi']:.2f}); "
           f"concepts below are relative to that. Shrinkage alpha {alpha:.0f}"
           + (" (= no detectable spread between concepts beyond noise)." if alpha > 5e4 else "."))
-    rows = []
-    for k, c in enumerate(cs):
-        lo_, hi_ = np.percentile(bs["ratio"][:, k], [5, 95])
-        elo_lo, elo_hi = np.percentile(bs["elo"][:, k], [5, 95])
-        rows.append({"concept": c["name"], "section": c["section"], "kind": c["kind"],
-                     "n_pos": int(c["mask"].sum()), "observed": float(pt["O"][0, k]),
-                     "expected": float(pt["Er"][0, k]), "ratio_raw": float(pt["raw"][0, k]),
-                     "ratio": float(pt["ratio"][0, k]), "ratio_lo": lo_, "ratio_hi": hi_,
-                     "elo": float(pt["elo"][0, k]), "elo_lo": elo_lo, "elo_hi": elo_hi,
-                     "per_game": float(pt["O"][0, k] / G),
-                     "old_ratio": float(tr["raw"][0, k]), "old_exp": float(tr["Er"][0, k]),
-                     "new_ratio": float(ts["raw"][0, k]), "new_exp": float(ts["Er"][0, k])})
-    res = pd.DataFrame(rows)
     P = data_dir(cfg, "player")
     res.to_parquet(P / "weakness_model.parquet", index=False)
-    val.update({"alpha": alpha, "theta": float(pt["theta"][0]), "games": int(G), "positions": int(len(me))})
-    judged = res[(res.old_exp >= MIN_EXP) & (res.new_exp >= MIN_EXP) & (res.kind != "diagnostic")]
-    if len(judged) >= 5:
-        val["holdout_corr_log_ratio"] = float(np.corrcoef(np.log(judged.old_ratio.clip(0.05)),
-                                                         np.log(judged.new_ratio.clip(0.05)))[0, 1])
-        print(f"holdout: correlation of log ratios, older vs newest games, over {len(judged)} concepts: "
+    val.update({k: info[k] for k in ("alpha", "theta", "games", "positions")})
+    if "holdout_corr_log_ratio" in info:
+        val["holdout_corr_log_ratio"] = info["holdout_corr_log_ratio"]
+        print(f"holdout: correlation of log ratios, older vs newest games, over {info['holdout_n']} concepts: "
               f"{val['holdout_corr_log_ratio']:+.2f} (0 = the concept profile doesn't replicate)")
     (P / "weakness_validation.json").write_text(json.dumps(val, indent=1), encoding="utf-8")
 
@@ -225,6 +337,7 @@ def main() -> None:
                              f"695 × excess win-prob loss per game (shrunk), trainability {TRAIN[c['kind']]:.1f}"
                              if elo is not None else "", ev, exs, drill,
                              "Drill these positions (Drills tab)." if drill else "", None, rank))
+    items += line_patterns(cfg, peers, me, args)
     write(cfg, "weakness", items)
 
     show = res[res.kind != "diagnostic"].assign(rank=lambda d: d.elo * d.kind.map(TRAIN))

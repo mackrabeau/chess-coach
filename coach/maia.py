@@ -75,6 +75,45 @@ class Maia:
         logits = logits.float().masked_fill(~masks.to(self.device), float("-inf"))
         return torch.softmax(logits, -1)
 
+    def embed(self, tokens, elo: int = 1900, layer: int | None = None):
+        """Hidden state (B, dim_vit) at one fixed Elo for both sides, so it describes the position, not the
+        rating. layer None: the final square-mean + LayerNorm vector (input to the value head); int k: the
+        output of transformer block k, averaged over the 64 squares."""
+        torch = self.torch
+        mod = self.model.last_ln if layer is None else self.model.transformer.layers[layer]
+        got = {}
+        hook = mod.register_forward_hook(lambda m, i, o: got.__setitem__("x", o))
+        try:
+            e = torch.full((tokens.shape[0],), int(elo), dtype=torch.long, device=self.device)
+            with torch.no_grad(), torch.autocast("cuda", enabled=self.amp):
+                self.model(tokens.to(self.device), e, e)
+        finally:
+            hook.remove()
+        x = got["x"].float()
+        return (x if layer is None else x.mean(1)).cpu().numpy()
+
+
+def difficulty(maia, fens, histories, best_moves, elos, batch: int = 256):
+    """Maia difficulty per position at the mover's own Elo (both Elo inputs = elos[i]):
+    p_best = P(engine best move), entropy = entropy of the move distribution (nats). Returns two arrays."""
+    torch = maia.torch
+    pb, ent = np.full(len(fens), np.nan), np.full(len(fens), np.nan)
+    for b0 in range(0, len(fens), batch):
+        idx = range(b0, min(b0 + batch, len(fens)))
+        T = torch.stack([maia.tokens(fens[i], [] if histories[i] is None else list(histories[i])[-7:]) for i in idx])
+        M = torch.stack([maia.legal_mask(fens[i]) for i in idx])
+        e = np.clip(np.asarray([elos[i] for i in idx], float), 0, 5000).round()
+        P = maia.policy(T, M, e, e).cpu().numpy()
+        for j, i in enumerate(idx):
+            p = P[j]
+            q = p[p > 0]
+            ent[i] = float(-(q * np.log(q)).sum())
+            try:
+                pb[i] = float(p[maia.index(fens[i], best_moves[i])])
+            except KeyError:
+                pass
+    return pb, ent
+
 
 def maia_lists(maia, nodes, mass, kmax, batch=128):
     """nodes: list of (fen_after, history(oldest first), self_elo, oppo_elo, must_include).

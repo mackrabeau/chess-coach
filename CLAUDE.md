@@ -22,8 +22,12 @@ Sub-goals, in priority order:
    → error rates vs peers. Direction: one model of $P(\text{error} \mid \text{position features, rating, clock})$
    fit on peers across bands; the player's shrunken residual per concept = weakness, its rating slope = Elo
    value (replaces many separate slice tests, handles multiple comparisons; design in `docs/weakness_model.md`,
-   next major build). Unsupervised (NMF now, SAE later)
-   = exploratory pattern discovery, promoted to a named concept only once a human can describe it.
+   next major build). Concepts are **named patterns of the engine line**, not of the static position (e.g.
+   "endgame pawn sacrifice", "sac for a pin", "pawn break"): opportunity (best line has the pattern, 2nd-best
+   doesn't, gap ≥ 0.05) → choice (did the player start it; if not, what instead) → cost (win prob lost when
+   declined), uptake vs peers at matched difficulty → advice like "you hold on to pawns in endgames; give them
+   for counterplay". Plan: `docs/future_work.md` "Concept groups". Unsupervised discovery (sequence mining on
+   peer lines, SAE) only proposes candidates; a candidate becomes a concept once a rule names it.
    Phases by game state (material, queens, development), not move number; split finer (opening book → opening
    → transition → middlegame → transition → endgame → theoretical endgame) only where the data shows a
    difference, else merge.
@@ -84,12 +88,16 @@ book from the dump) · 14b opening findings · 15 score accounting · 16 skill p
 reuses any peer set covering a band) · 17b category findings · 18 opening traps · 19 repertoire ("your lines,
 extended", Lichess studies via `coach/study.py`) · 22 import PGN games · 24 weakness model (stage `weakness`:
 peer error model across bands + your excess per concept, `coach/weakness.py` + `coach/motifs.py`; runs beside
-08/16/17/17b until validated, then those slice findings get retired) · 20 report (aggregates findings: Summary +
+08/16/17/17b until validated, then those slice findings get retired; also line-pattern uptake: `coach/linepatterns.py`
+→ `<set>/linepatterns.parquet`, `player/linepatterns_uptake.parquet`) · 25 puzzle sets (stage `clusters`: your critical
+errors clustered on Maia-3 move-pooled states (block 3, k=64, with peers' critical positions);
+`coach.clusters.pick_puzzles` picks representative, non-duplicate puzzles + Lichess "more like this"; in-depth items +
+`player/clusters_drills_*.pgn`; `--variants` = embedding coherence, `--validate` = the old concept-source check) · 20 report (aggregates findings: Summary +
 Opening/Middlegame/Endgame by `rank` (Elo × trainability) else Elo, each with a collapsed "In depth" part,
 Exploitation, Games (analysis board → PGN → `imported/inbox/`), Drills (copy/download PGN), How sure are we, Files) ·
 23 head-to-head.
 Shared code: `coach/` (runner, results, categories, openings, maia, difficulty, stats, findings, why, game_rating,
-webreport, hub, report, study, lines, bands, motifs, weakness). `coach/lines.follow_up` turns a move into move + engine continuation (cached);
+webreport, hub, report, study, lines, bands, motifs, weakness, linepatterns, clusters). `coach/lines.follow_up` turns a move into move + engine continuation (cached);
 `findings.write` applies it to every one-move example / puzzle (best move = the plan, mistake = the punishment),
 and puzzle chapters carry the wrong move's refutation as a side line. `pos_id = "{source}:{game_id}:{ply}"` joins everything. Evals from the mover's POV;
 win prob = Lichess logistic; ok < 0.03 ≤ mistake ≤ 0.20 < blunder; critical = best beats 2nd by ≥ 0.10.
@@ -110,6 +118,21 @@ win prob = Lichess logistic; ok < 0.03 ≤ mistake ≤ 0.20 < blunder; critical 
 - Elo gain = 695 × expected score per game (win-prob loss as proxy; estimates overlap; upper bound).
 - Exploitation: looser evidence, labelled exploratory; individual opponents judged on RECENT play (a line counts
   only if their latest visit still went wrong).
+- Concepts (2026-11-12 research rounds; don't redo them): difficulty / rating / clock are controls in the peer
+  model, never part of a concept. Position clustering is ruled out: NMF on handcrafted deltas = shuffled null;
+  k-means on Maia-3 hidden states (stage 25) = material / phase / difficulty slices with poor names (the final
+  layer adds peer predictive info, but as a difficulty signal → use Maia difficulty as a 24 control instead).
+  Clusters are for puzzle selection only, judged by tag coherence vs size-matched random sets + a blind eyeball
+  check; move-pooled sets group by the piece the solution moves (99.6% vs 18%), not by motif (40% vs 35%).
+- Line-pattern claims need label precision ≥ 85% by eye and a flip rate < 25% at 4× nodes; below 70% a pattern is
+  exploratory. Judge significance on raw-ratio CIs (with family alpha at the grid top the shrunk CI collapses);
+  shrunk ratios set size and Elo. The negative control `ctrl_light_square` must include 1.
+- Power: one player has ~10–60 opportunities per narrow line pattern (minimum detectable uptake gap ~0.25) →
+  claims at family level (shrinkage family → pattern), narrow patterns as examples / drills. ~400 expected
+  events to detect a 1.2× ratio (~880 with multiplicity); below that a result is a "lead". Older-vs-newest
+  correlations are biased upward by shared peer-calibration noise: compare with a simulated null.
+- Line patterns need settled lines (03): raw lines stop mid-exchange and fake sacrifices. main.py settles `player`,
+  `population` and every `band_*` (stage `settle-bands`, `03 --set bands`).
 
 ## Conventions
 - Windows-safe multiprocessing (`__main__` guards, top-level workers, `mp.freeze_support()`), pathlib everywhere.
@@ -184,4 +207,13 @@ win prob = Lichess logistic; ok < 0.03 ≤ mistake ≤ 0.20 < blunder; critical 
 - Wrote a "new" `coach/motifs.py` over the existing one (06c/07b/08 import `tactic_labels` from it), and
   re-invented its cash-in rule. Before creating a module: `ls coach/`, grep for the concept (e.g. "motif",
   "fork"), and reuse what's there.
+
+### 2026-11-13
+- `np.load` on an `.npz` keeps the file open on Windows → PermissionError when rewriting the cache: use
+  `with np.load(...)`.
+- pandas `groupby(...).apply` dropped the grouping column and a Stockfish pass was lost: cache engine results
+  before post-processing.
+- Bash heredocs containing apostrophes failed in the Bash tool: write the script with Write, then run it.
+- Lines agent hit the 5-hour usage limit mid-run (resumed after reset): give long agent runs a budget and
+  checkpoint (results on disk) so a stop costs little.
 

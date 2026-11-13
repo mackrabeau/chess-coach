@@ -12,6 +12,8 @@ up to quiesce.max_extra_plies extra plies. Resumable like 02; does not touch 02'
     python scripts/03_settle_lines.py --config configs/v0.yaml --set population --limit 200
     python scripts/03_settle_lines.py --config configs/v0.yaml --set population
     python scripts/03_settle_lines.py --config configs/v0.yaml --set player
+    python scripts/03_settle_lines.py --config configs/v0.yaml --set bands    # every band_* sample (17)
+    python scripts/03_settle_lines.py --config configs/v0.yaml --set band_1600
 
 Output: data/<set>/engine_q/part-*.parquet. 05 onwards use these lines when
 quiesce.use is true.
@@ -28,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pandas as pd
 
+from coach.bands import resolve_sets, settings
 from coach.config import data_dir, load_config, resolve
 from coach.engine import LINES, SETTLE_SCHEMA, Analyzer
 from coach.parts import done_ids, next_part_index, read_parts, write_part
@@ -66,28 +69,16 @@ def summarize(q: pd.DataFrame) -> None:
               + " | end: " + ", ".join(f"{k} {v:.0%}" for k, v in end.items()))
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--config", default="configs/v0.yaml")
-    ap.add_argument("--set", choices=["population", "player"], required=True)
-    ap.add_argument("--limit", type=int, default=None, help="only the first N positions (testing)")
-    ap.add_argument("--workers", type=int, default=None, help="override engine.workers")
-    args = ap.parse_args()
-
-    cfg = load_config(args.config)
+def settle(cfg, which: str, limit: int | None, workers: int) -> None:
     ecfg, qcfg = dict(cfg["engine"]), dict(cfg["quiesce"])
-    if qcfg["max_extra_plies"] % 2:
-        sys.exit("quiesce.max_extra_plies must be even")
     sf_path = str(resolve(cfg, cfg["paths"]["stockfish"]))
-    workers = args.workers or ecfg["workers"]
-
-    df = load_analyzed(cfg, args.set, raw_lines=True)
-    if args.limit:
-        df = df.head(args.limit)
-    out_dir = data_dir(cfg, args.set, "engine_q")
+    df = load_analyzed(cfg, which, raw_lines=True)
+    if limit:
+        df = df.head(limit)
+    out_dir = data_dir(cfg, which, "engine_q")
     done = done_ids(out_dir)
     todo = df[~df.pos_id.isin(done)]
-    print(f"{len(df):,} positions, {len(done):,} already settled, {len(todo):,} to go; "
+    print(f"{which}: {len(df):,} positions, {len(done):,} already settled, {len(todo):,} to go; "
           f"{workers} workers @ {qcfg['nodes']:,} nodes")
 
     if not todo.empty:
@@ -113,6 +104,30 @@ def main() -> None:
         print(f"done in {(time.time() - t0) / 3600:.2f} h -> {out_dir}")
 
     summarize(read_parts(out_dir))
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--config", default="configs/v0.yaml")
+    ap.add_argument("--set", required=True,
+                    help="player, population, a band sample (band_<lo>) or 'bands' (every band_* set of 17)")
+    ap.add_argument("--limit", type=int, default=None, help="only the first N positions (testing)")
+    ap.add_argument("--workers", type=int, default=None, help="override engine.workers")
+    args = ap.parse_args()
+
+    cfg = load_config(args.config)
+    if cfg["quiesce"]["max_extra_plies"] % 2:
+        sys.exit("quiesce.max_extra_plies must be even")
+    workers = args.workers or cfg["engine"]["workers"]
+    if args.set == "bands":
+        names = [n for n, _ in resolve_sets(cfg, settings(cfg))
+                 if n.startswith("band_") and any(data_dir(cfg, n, "engine").glob("part-*.parquet"))]
+        if not names:
+            print("no band_* sets with engine results (17_multiband mines them); nothing to settle")
+    else:
+        names = [args.set]
+    for n in names:
+        settle(cfg, n, args.limit, workers)
 
 
 if __name__ == "__main__":

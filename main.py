@@ -99,11 +99,15 @@ STAGES = [
     Stage("skill", "16_skill_profile.py", [], eng("player") + eng("population") + ["*/maia_*/*.parquet"],
           ["player/skill_profile.parquet"], maia=True),
     Stage("multiband", "17_multiband.py", [], always=True),
+    # 17 mines + engine-passes the band_* samples; line patterns (24) need their lines settled too
+    Stage("settle-bands", "03_settle_lines.py", ["--set", "bands"], always=True),
     Stage("category-findings", "17b_category_findings.py", [], ["player/skill_profile.parquet",
                                                                 "player/multiband.parquet"] + eng("player"),
           ["findings/categories.json"]),
     Stage("weakness", "24_weakness_model.py", [], eng("player") + eng("population"),
           ["findings/weakness.json", "player/weakness_model.parquet"]),
+    Stage("clusters", "25_position_clusters.py", [], eng("player") + eng("population"),
+          ["findings/clusters.json", "player/clusters_puzzles.parquet"], maia=True),
     Stage("imported-games", "22_import_games.py", [], always=True),
     # layer 2: exploitation (exploratory)
     Stage("practical-tree", "13_practical_tree.py", [], eng("player") + eng("population"),

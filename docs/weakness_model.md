@@ -13,6 +13,23 @@
   2nd best, criticality, eval, legal moves).
 - Elo value is shrunk with the same weight as the count ratio; diagnostic concepts never carry Elo.
 
+## v2 (2026-11-13): settled lines, Maia difficulty, line-pattern uptake
+- 24 loads the settled lines (03) for every set, the `band_*` samples included (main.py stage `settle-bands`);
+  the motif cache was rebuilt (MOTIF_VERSION 2).
+- Stage-1 controls gain Maia-3 P(engine best) and policy entropy at the mover's own Elo
+  (`coach/maia.difficulty`, cached in `<set>/maia_difficulty.parquet`; NaN without torch, which HistGB tolerates).
+- Line patterns (`coach/linepatterns.py`, design in future_work "Concept groups" → "Rethink"): a second estimand
+  next to error O/E. Per opportunity (best line has pattern X, 2nd-best doesn't, gap ≥ 0.05) the peer model
+  gives $\hat p = P(\text{took} \mid x, r, X)$; the player's expected declines $\sum (1-\hat p_i)\,c_X$ with
+  $c_X$ the peers' out-of-fold calibration factor per pattern. Ratio = observed / expected declines relative
+  to the player's overall decline ratio $\theta$; shrinkage family → pattern (gamma-Poisson, `eb_alpha` at
+  both levels); CIs resample the player's games jointly with peer-bootstrap draws of $c_X$.
+  Elo $\approx 695 \cdot f \cdot \delta \cdot \bar c$ (upper bound). The gate and its null checks are in the
+  24 docstring; results in `player/linepatterns_uptake.parquet` / `linepatterns_validation.json`.
+- Not done: peer bootstrap of the concept (error O/E) calibration — only the line-pattern path has it; the
+  reverse errors (unsound sac, premature trade) are stored as rows with `opportunity = False, took = True`
+  but not modelled yet.
+
 
 One model replaces the many separate player-vs-peer slice tests (08 idea tests, 16/17 per-category fits, 17b
 findings) with: **what error rate would a typical player at your rating have in exactly your positions, and where
