@@ -158,6 +158,8 @@ win prob = Lichess logistic; ok < 0.03 ≤ mistake ≤ 0.20 < blunder; critical 
   - JS smoke test: inject a `window.onerror` collector in `<head>` and a test script that clicks/keys and writes
     results to a `data-` attribute on `<body>`; run with `--virtual-time-budget=3000 --dump-dom` and regex it out.
   - Set `PYTHONIOENCODING=utf-8` for any Python that prints report text (→, ✓, …) from the Bash tool.
+  - Verify UI changes by opening the real generated report, not headless Chrome screenshots (they have width limits).
+  - Test the board in both orientations (normal and flipped) and check coordinate label colours on each.
 
 ## Mistakes log (running list; `/reflect` appends here; once a lesson is a rule above, delete it here)
 - Personal notes were double-encoded (UTF-8 read as cp437, saved again) by a PowerShell write → mojibake for
@@ -182,5 +184,4 @@ win prob = Lichess logistic; ok < 0.03 ≤ mistake ≤ 0.20 < blunder; critical 
 - Wrote a "new" `coach/motifs.py` over the existing one (06c/07b/08 import `tactic_labels` from it), and
   re-invented its cash-in rule. Before creating a module: `ls coach/`, grep for the concept (e.g. "motif",
   "fork"), and reuse what's there.
-
 
