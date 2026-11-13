@@ -71,7 +71,9 @@ paths; keep shared docs generic. Other docs: `docs/agents.md` (modules publish f
   then `python main.py --config tests/test.yaml --offline` (set `paths.stockfish` first). Fake data via
   `tests/make_fake_data.py` + `tests/test.yaml` (player `test_player`, opponent `someone`).
   Locally: `sed 's#C:/tools/stockfish/stockfish-windows-x86-64-avx2.exe#/usr/games/stockfish#' tests/test.yaml > tests/local.yaml`
-  (ignored by git). Fake games are engine-played: Maia fits hit the grid edge, you-vs-peers "within noise".
+  (ignored by git); on Windows point it at `paths.stockfish` from `configs/local/*.yaml` (test.yaml's path may not
+  exist), chain the two steps with `&&` and check `make_fake_data` succeeded, else main.py silently reuses old fake
+  data. Fake games are engine-played: Maia fits hit the grid edge, you-vs-peers "within noise".
 
 ## Data layout (coach/config.py)
 `data/players/<username>/{player,openings,findings,imported}` per player · `data/population_<lo>_<hi>/` peers per
@@ -142,6 +144,10 @@ win prob = Lichess logistic; ok < 0.03 ≤ mistake ≤ 0.20 < blunder; critical 
   `.venv`: check early, ask before installing; `python -m py_compile` is the fallback).
 - Read and write text files with an explicit `encoding='utf-8'`.
 - When rewriting a code path (e.g. puzzle rendering), remove the old/unused path in the same edit; no dead code.
+- Subagent briefs restate the privacy rule (no usernames, results or paths in shared docs/code); before committing
+  their work, grep `git diff docs/ CLAUDE.md` for result numbers and move them to `docs/local/status_log.md`.
+- A new finding's claim sentence must be read in the generated report before shipping (a shrunk value printed
+  next to a raw CI read "1.21× … gap +0 points").
 
 ## Report UI (do this, don't re-derive it)
 - No standalone detail pages: a module's section-specific tables/boards are findings with `detail=True`
@@ -172,6 +178,8 @@ win prob = Lichess logistic; ok < 0.03 ≤ mistake ≤ 0.20 < blunder; critical 
 - Loop: regenerate (`python scripts/20_report.py --config configs/v0.yaml` is seconds; 23 for head-to-head;
   in-depth items need `main.py --force <their stages>`), then look at it, then test it. Check several tabs/pages,
   not just one, and every board both normal and flipped (labels and light/dark squares must stay correct):
+  - Tab ids (`data-tab='…'`, single quotes): summary, opening, middlegame, endgame, exploit, games, drills,
+    method, files. Open every `<details>` too, or "In depth" items stay invisible in screenshots.
   - Screenshot a tab: copy the HTML, inject `<script>show('<tab>')</script>` before `</body>`, then
     `chrome.exe --headless=new --disable-gpu --hide-scrollbars --user-data-dir=<scratch> --window-size=1280,2000
     --screenshot=<png> <file uri>`; `data-theme='dark'` on `<html>` for dark. Chrome is at
@@ -214,6 +222,4 @@ win prob = Lichess logistic; ok < 0.03 ≤ mistake ≤ 0.20 < blunder; critical 
 - pandas `groupby(...).apply` dropped the grouping column and a Stockfish pass was lost: cache engine results
   before post-processing.
 - Bash heredocs containing apostrophes failed in the Bash tool: write the script with Write, then run it.
-- Lines agent hit the 5-hour usage limit mid-run (resumed after reset): give long agent runs a budget and
-  checkpoint (results on disk) so a stop costs little.
 
