@@ -153,7 +153,7 @@ def main() -> None:
                              f"vs the ~{tgt_rating:.0f} band's loss per move × {per_game:.1f} moves/game" if gain else "",
                              ev, exs, drill,
                              "Drill your own positions (Drills tab)." if drill else
-                             ("Nothing to fix." if tag == "style" else ""), "player_report.html"))
+                             ("Nothing to fix." if tag == "style" else "")))
 
     # converting winning endgames, by result
     pop = annotate(load_analyzed(cfg, "population"))
@@ -171,8 +171,7 @@ def main() -> None:
         items.append(finding("endgame:conversion", "endgame", "Converting winning endgames",
                              f"From the first winning endgame position (> 80%) you scored <b>{cm.mean():.2f}</b> "
                              f"[{lo:.2f}, {hi:.2f}] (n {len(cm)}) vs peers {cp.mean():.2f}.", tag, gain,
-                             "score gap × share of games reaching a winning endgame" if gain else "",
-                             link="endgame_report.html"))
+                             "score gap × share of games reaching a winning endgame" if gain else ""))
     write(cfg, "categories", items)
     print(f"{len(items)} category findings ({sum(f['tag'] in ('solid', 'lead') for f in items)} weaknesses); "
           f"target band ~{tgt_rating:.0f}; ELO_PER_SCORE {ELO_PER_SCORE:.0f}")

@@ -22,7 +22,7 @@ Assumes you then punish the mistake (no follow-up model here; see 13 for that di
 
     python scripts/18_opening_traps.py --config configs/v0.yaml       (needs 14 to have run)
 
-Output: stdout + data/player/opening_traps.html + data/openings/traps.parquet
+Output: stdout + findings/traps.json (Exploitation tab) + data/openings/traps.parquet
 """
 from __future__ import annotations
 
@@ -41,10 +41,9 @@ import pandas as pd
 from coach.config import data_dir, load_config, resolve
 from coach.difficulty import player_maia_elo
 from coach.engine import Analyzer
-from coach.findings import elo_gain, example, finding, write as write_findings
+from coach.findings import detail, elo_gain, example, finding, table, write as write_findings
 from coach.maia import Maia, maia_lists
 from coach.openings import band_labels, opening_engine, player_tree
-from coach.report import page, position_card
 
 TRAPS = {"min_count": 2, "bad": 0.08, "min_err_mass": 0.15, "min_book": 30, "multipv": 5,
          "nodes_root": 1000000, "nodes_reply": 300000, "reply_mass": 0.9, "max_replies": 6, "min_gain": 0.02}
@@ -106,12 +105,6 @@ def history(path_san: str) -> list[str]:
     return out
 
 
-def card(fen, move, best, loss, note):
-    r = pd.Series({"fen": fen, "move": move, "best_move": best, "best_line": [best], "played_line": [move],
-                   "wp_loss": loss, "phase": "opening"})
-    return position_card(r, note=note)
-
-
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="configs/v0.yaml")
@@ -138,9 +131,7 @@ def main() -> None:
     book = pd.read_parquet(od / "book.parquet")
     book = {e: g[["move", "n", "score"]] for e, g in book[book.band == opp_band].groupby("epd")}
     E = {p[5:]: v for p, (_, v) in opening_engine(cfg).items() if p.startswith("tree:")}
-    L, body = [], ["<h1>Opening traps (exploratory)</h1>",
-                   f"<p class='muted'>Exploitation layer, not the main analysis. Opponents modelled at ~{opp_elo:.0f} "
-                   f"(book band {opp_band}; Maia where the book is thin). Gains assume you punish the mistake.</p>"]
+    L = []
 
     # A. where opponents already go wrong
     vc = recent.groupby("epd").agg(n=("game_id", "size"), mine=("mine", "first"), fen=("fen", "first"),
@@ -161,21 +152,17 @@ def main() -> None:
                          "best": max(vals, key=vals.get)})
     A = pd.DataFrame(rows)
     A.to_parquet(od / "traps_A.parquet", index=False)
-    cards = []
+    rows_a = []
     L.append(f"A. positions you reach where {opp_band} players often go wrong (>= {100 * tc['bad']:.0f} points):")
     if len(A):
         A["value"] = A.visits * A.exp_loss
-        for r in A.sort_values("value", ascending=False).head(12).itertuples():
+        for r in A.sort_values("value", ascending=False).head(25).itertuples():
             L.append(f"   {r.path}: {r.err_mass:.0%} go wrong (book n {r.book_n}); most common: "
                      f"{san(r.fen, r.trap)} {r.trap_p:.0%} (loses {100 * r.trap_loss:.0f}); you reached it {r.visits}x")
-            cards.append(card(r.fen, r.trap, r.best, r.trap_loss,
-                              f"{r.path} · {r.err_mass:.0%} of {opp_band} go wrong · common error "
-                              f"{san(r.fen, r.trap)} ({r.trap_p:.0%}) · you reached it {r.visits}x"))
+            rows_a.append([r.path, f"{r.err_mass:.0%}", f"{san(r.fen, r.trap)} ({r.trap_p:.0%})",
+                           f"{san(r.fen, r.best)}", r.visits, r.book_n])
     else:
         L.append("   none (needs 14's engine values for the opponents' moves and >= min_book book games)")
-    body += ["<h2>A. Positions you already reach where opponents often go wrong</h2>",
-             "<p class='muted'>Red = the opponents' common mistake, green = the right move. Know the punishment.</p>",
-             f"<div class='grid'>{''.join(cards)}</div>"]
 
     # B. trap moves you could play
     mine = vc[(vc.n >= tc["min_count"]) & vc.mine]
@@ -235,23 +222,18 @@ def main() -> None:
             continue
         out.append({**tr.to_dict(), "sf_move": sf.move, "gain": tr.ev - sf.ev, "cost": sf.wp - tr.wp})
     Bt = pd.DataFrame(out)
-    cards = []
+    rows_b = []
     L.append(f"B. trap moves within {100 * tc['delta']:.0f} points of the best, gaining >= {100 * tc['min_gain']:.0f} "
              f"in expectation: {len(Bt)} positions")
     if len(Bt):
         Bt["value"] = Bt.visits * Bt.gain
-        for r in Bt.sort_values("value", ascending=False).head(12).itertuples():
+        for r in Bt.sort_values("value", ascending=False).head(25).itertuples():
             L.append(f"   {r.path} [{san(r.fen, r.move)} instead of {san(r.fen, r.sf_move)}]: expected +{100 * r.gain:.1f}, "
                      f"cost {100 * r.cost:.1f}; bait {san(r.fen_after, r.bait) if isinstance(r.bait, str) else '-'} "
                      f"({r.bait_p:.0%}, {r.src}); you reached it {r.visits}x")
-            cards.append(card(r.fen, r.move, r.sf_move, r.cost,
-                              f"{r.path} · trap {san(r.fen, r.move)} (red) vs Stockfish {san(r.fen, r.sf_move)} (green) · "
-                              f"expected +{100 * r.gain:.1f}, cost {100 * r.cost:.1f} · they play "
-                              f"{san(r.fen_after, r.bait) if isinstance(r.bait, str) else '-'} {r.bait_p:.0%} ({r.src})"))
-    body += ["<h2>B. Trap moves you could play</h2>",
-             "<p class='muted'>Red = trap move, green = Stockfish's. 'they play' = the opponents' most damaging likely "
-             "reply and how often; book = real Lichess games at their level, Maia = model for rarer lines.</p>",
-             f"<div class='grid'>{''.join(cards)}</div>"]
+            rows_b.append([r.path, san(r.fen, r.move), san(r.fen, r.sf_move), f"+{100 * r.gain:.1f}",
+                           f"{100 * r.cost:.1f}", f"{san(r.fen_after, r.bait) if isinstance(r.bait, str) else '-'} "
+                           f"{r.bait_p:.0%}", r.src, r.visits])
     # findings for the report (exploratory)
     n_games = recent.game_id.nunique()
     fi = []
@@ -261,19 +243,28 @@ def main() -> None:
                               f"{r.err_mass:.0%} of {opp_band} players go wrong here (book n {r.book_n}); the most common "
                               f"error is {san(r.fen, r.trap)} ({r.trap_p:.0%}). Know the punishment.", "exploratory",
                               elo_gain(r.exp_loss * r.visits / max(n_games, 1)), "expected opponent loss × visits per game",
-                              examples=[example(r.fen, [r.best], [r.trap], r.path)], link="opening_traps.html"))
+                              examples=[example(r.fen, [r.best], [r.trap], r.path)]))
     if len(Bt):
         for r in Bt.sort_values("value", ascending=False).head(8).itertuples():
             fi.append(finding(f"trap:{r.epd}", "exploit", f"Trap move: {r.path}",
                               f"{san(r.fen, r.move)} instead of {san(r.fen, r.sf_move)}: +{100 * r.gain:.1f} expected, "
                               f"cost {100 * r.cost:.1f} ({r.src}).", "exploratory",
                               elo_gain(r.gain * r.visits / max(n_games, 1)), "expected gain × visits per game",
-                              examples=[example(r.fen, [r.move], [r.sf_move], r.path)], link="opening_traps.html"))
+                              examples=[example(r.fen, [r.move], [r.sf_move], r.path)]))
+    who = f"Opponents modelled at ~{opp_elo:.0f} (book band {opp_band}; Maia where the book is thin)."
+    if rows_a:
+        fi.append(detail("traps:steer-all", "exploit", "All positions you reach where opponents often go wrong",
+                         who + " The top ones are shown above with boards.",
+                         table(["line", "go wrong", "common mistake", "punish / right move", "you reached it",
+                                "book games"], rows_a)))
+    if rows_b:
+        fi.append(detail("traps:moves-all", "exploit", "All trap moves you could play",
+                         who + " Trap move vs Stockfish's, expected gain and objective cost (points), the opponents' "
+                         "most damaging likely reply; book = real Lichess games at their level, Maia = model.",
+                         table(["line", "trap move", "Stockfish", "expected gain", "cost", "they play", "source",
+                                "you reached it"], rows_b)))
     write_findings(cfg, "traps", fi)
     print("\n".join(L))
-    path = data_dir(cfg, "player") / "opening_traps.html"
-    path.write_text(page("Opening traps", "".join(body)), encoding="utf-8")
-    print(f"wrote {path}")
 
 
 if __name__ == "__main__":

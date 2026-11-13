@@ -3,6 +3,9 @@
     python scripts/22_import_games.py --config configs/v0.yaml --pgn my_otb_games.pgn --name "Your Name"
     python scripts/22_import_games.py --config configs/v0.yaml            # re-analyse what's imported
 
+Inbox: any *.pgn in data/players/<you>/imported/inbox/ (e.g. saved from the report's Games board) is
+imported on every run (main.py runs this stage each time) and moved to inbox/done/.
+
 --name: text that identifies you in the White/Black tags (case-insensitive; several allowed). Games
 without your name are skipped. Imported games are kept separate (data/imported/), never mixed into
 the chess.com comparisons; they reuse the rapid peers/bands as reference (no separate classical
@@ -130,12 +133,20 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=None)
     args = ap.parse_args()
     cfg = load_config(args.config)
+    names = args.name or cfg["player"].get("otb_names") or [cfg["player"]["username"]]
     if args.pgn:
         paths = []
         for p in map(Path, args.pgn):
             paths += sorted(p.glob("*.pgn")) if p.is_dir() else [p]
-        names = args.name or cfg["player"].get("otb_names") or [cfg["player"]["username"]]
         import_pgn(cfg, paths, names, args.label)
+    # inbox: PGNs saved from the report's Games board (or dropped in by hand) are imported on every run
+    inbox = data_dir(cfg, SET, "inbox")
+    new = sorted(inbox.glob("*.pgn"))
+    if new:
+        import_pgn(cfg, new, names, args.label)
+        done = data_dir(cfg, SET, "inbox", "done")
+        for p in new:
+            p.replace(done / p.name)
     if (data_dir(cfg, SET) / "positions_engine.parquet").exists():
         engine_pass(cfg, SET, workers=args.workers)
     analyse(cfg)

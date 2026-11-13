@@ -21,11 +21,15 @@ import chess.svg
 
 from .categories import PLAIN
 
-TAG_TEXT = {"solid": "solid", "lead": "lead", "style": "style", "strength": "strength", "info": "info",
-            "exploratory": "exploratory"}
-TAG_HELP = {"solid": "weakness confirmed by two measures", "lead": "possible weakness (one measure or borderline)",
-            "style": "different from peers, not costing points", "strength": "better than peers, confirmed twice",
-            "info": "context", "exploratory": "opponent model, looser evidence"}
+# Tag ids stay the data keys; readers see plain words, with a one-line explanation on hover.
+TAG_TEXT = {"solid": "Confirmed weakness", "lead": "Possible weakness", "style": "Your style",
+            "strength": "Strength", "info": "Context", "exploratory": "Experimental"}
+TAG_HELP = {"solid": "You lose more here than players at your rating, and it holds up on a second check.",
+            "lead": "Points the same way, but the evidence is thinner (one measure, or borderline). Worth a look.",
+            "style": "You play differently from players at your rating here, without losing points for it.",
+            "strength": "You lose less here than players at your rating, and it holds up on a second check.",
+            "info": "Background numbers that help you read the rest; nothing to fix.",
+            "exploratory": "Built on models of opponents or looser evidence; useful ideas, not proven."}
 
 _SAN = re.compile(r"^(?:[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?|O-O(?:-O)?)[+#]?[?!]*$")
 
@@ -101,6 +105,7 @@ class Report:
         self.home = home                         # relative link to data/index.html
         self.tabs: list[tuple[str, str, list[str]]] = []   # (id, label, html parts)
         self.examples: list[dict] = []
+        self.game = False                        # a game-entry board is on the page (loads chess.js)
 
     def tab(self, tid: str, label: str) -> list[str]:
         parts: list[str] = []
@@ -118,6 +123,13 @@ class Report:
             ex["lines"].append({"name": labels[1], **line_data(fen, played)})
         self.examples.append(ex)
         return f"<div class='ex' data-ex='{len(self.examples) - 1}'></div>"
+
+    def game_board(self, me: str, inbox: str) -> str:
+        """Analysis board to enter a game (click moves or paste a PGN), then copy / download the PGN or
+        open it on Lichess. me: your name for the White/Black tag (so the import recognises you);
+        inbox: the folder the import stage reads (shown to the reader)."""
+        self.game = True
+        return f"<div class='gameboard' data-me='{esc(me)}' data-inbox='{esc(inbox)}'></div>"
 
     @staticmethod
     def finding(title: str, claim: str, tag: str, evidence: str = "", examples: str = "",
@@ -191,7 +203,8 @@ class Report:
                 f"<header class='top'><div class='bar'><div><h1>{esc(self.title)}</h1>{sub}</div>"
                 f"<div class='tools'>{home}<button class='theme' type='button'>Theme: auto</button></div></div>"
                 f"<nav role='tablist'>{nav}</nav></header><main>{panes}</main>"
-                f"<script>const EX={data};{JS}</script></body></html>")
+                + (f"<script src='{CHESS_JS}'></script>" if self.game else "")
+                + f"<script>const EX={data};{JS}{GAME_JS if self.game else ''}</script></body></html>")
 
     def write(self, path) -> None:
         path.write_text(self.html(), encoding="utf-8")
@@ -304,6 +317,9 @@ display:block}
 .okl li{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--good);border-radius:6px;
 padding:.5rem .8rem;font-weight:550}
 details.plain{margin:1rem 0}details.plain>summary{cursor:pointer;color:var(--muted);font-weight:550}
+.steps{margin:.3rem 0 0;padding-left:1.3rem}.steps li{margin:.15rem 0}
+.legend{list-style:none;padding:0}.legend li{margin:.5rem 0;display:grid;grid-template-columns:12rem 1fr;gap:.8rem;
+align-items:baseline;max-width:56rem}.legend .tag{text-align:center}
 /* boards */
 .exs{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:1.1rem;margin-top:1rem}
 .ex{min-width:0}
@@ -342,6 +358,23 @@ background:#777;font-weight:600}
 .copy{font:inherit;font-size:.88rem;border:1px solid var(--line);background:var(--surface2);color:var(--fg);
 border-radius:6px;padding:.2rem .7rem;cursor:pointer;margin-right:.4rem}
 .home{font-weight:550;text-decoration:none}
+/* game entry board */
+.gb{display:grid;grid-template-columns:minmax(260px,440px) minmax(260px,1fr);gap:1.4rem;align-items:start;
+background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;box-shadow:var(--shadow)}
+.gb .ctl{display:flex;gap:.3rem;flex-wrap:wrap;margin:.5rem 0}
+.gb button{font:inherit;font-size:.9rem;border:1px solid var(--line);background:var(--surface2);color:var(--fg);
+border-radius:6px;padding:.3rem .65rem;cursor:pointer}.gb button:hover{border-color:var(--muted)}
+.gb button.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.gml{display:grid;grid-template-columns:3ch 1fr 1fr;gap:.1rem .3rem;max-height:16rem;overflow-y:auto;
+font-size:.92rem;border:1px solid var(--line);border-radius:6px;padding:.4rem;min-height:3rem;margin-bottom:.8rem}
+.gml .n{color:var(--muted);text-align:right}.gml button{border:0;background:none;padding:.05rem .3rem;text-align:left}
+.gml button.cur{background:var(--accent);color:#fff}
+.gh{display:grid;grid-template-columns:auto 1fr;gap:.35rem .6rem;align-items:center;font-size:.9rem;margin-bottom:.8rem}
+.gh input,.gh select,.gpaste{font:inherit;font-size:.9rem;background:var(--bg);color:var(--fg);border:1px solid var(--line);
+border-radius:6px;padding:.25rem .45rem;width:100%}
+.gbtn{display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:.6rem}
+.gmsg{min-height:1.4em;font-size:.88rem}
+@media (max-width:760px){.gb{grid-template-columns:1fr}}
 @media (max-width:640px){body{font-size:16px}h1{font-size:1.25rem}.bar{padding:.7rem 1rem .2rem}nav{padding:0 .6rem}
 main{padding:1rem 1rem 4rem}.finding>summary{padding:.75rem .85rem;flex-wrap:wrap}.ftitle{flex-basis:70%}
 .fbody{padding:0 .85rem .9rem}.kpi b{font-size:1.6rem}.rank>li{grid-template-columns:1.6rem 1fr;padding:.75rem .8rem}}
@@ -450,4 +483,75 @@ document.querySelectorAll('button.copy[data-src]').forEach(b=>b.onclick=async()=
  try{await navigator.clipboard.writeText(t);}catch(e){const a=document.createElement('textarea');a.value=t;
   document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();}
  b.textContent='Copied ✓';setTimeout(()=>b.textContent='Copy PGN',1500);});
+"""
+
+# Legal moves / PGN parsing for the game-entry board (exact version, loaded only on pages that have one).
+CHESS_JS = "https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"
+
+GAME_JS = r"""
+document.querySelectorAll('.gameboard').forEach(root=>{
+ if(typeof Chess==='undefined'){root.innerHTML='<p class="no">The board needs an internet connection (it loads '+
+  'chess.js). Without it, put a .pgn file in <code>'+root.dataset.inbox+'</code> and run main.py.</p>';return;}
+ const me=root.dataset.me,today=new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
+ root.innerHTML='<div class="gb"><div><div class="bw" tabindex="0" aria-label="board: click a piece, then a square; '+
+  'arrow keys step through the game"></div><div class="ctl">'+
+  '<button data-a="start" title="start">⏮</button><button data-a="prev" title="previous move">◀</button>'+
+  '<button data-a="next" title="next move">▶</button><button data-a="end" title="last move">⏭</button>'+
+  '<button data-a="undo" title="take back the last move">Take back</button><button data-a="flip">Flip</button>'+
+  '<button data-a="new">New game</button></div></div><div><div class="gml" aria-label="moves"></div>'+
+  '<div class="gh"><label>White</label><input data-h="White"><label>Black</label><input data-h="Black">'+
+  '<label>Result</label><select data-h="Result"><option>*</option><option>1-0</option><option>0-1</option>'+
+  '<option>1/2-1/2</option></select><label>Date</label><input data-h="Date" type="date">'+
+  '<label>Event</label><input data-h="Event" placeholder="e.g. club night, 90+30"></div>'+
+  '<div class="gbtn"><button class="pri" data-a="dl">Download PGN</button><button data-a="copy">Copy PGN</button>'+
+  '<button data-a="lichess">Analyse on Lichess</button></div>'+
+  '<details><summary>Paste a PGN instead</summary><textarea class="gpaste" rows="6"></textarea>'+
+  '<button data-a="load">Load</button></details><p class="gmsg muted" aria-live="polite"></p></div></div>';
+ const bw=root.querySelector('.bw'),ml=root.querySelector('.gml'),msg=root.querySelector('.gmsg');
+ const H=k=>root.querySelector('[data-h="'+k+'"]');
+ H('White').value=me;H('Date').value=today;
+ let hist=[],ply=0,orient='w',pick=null,g=new Chess();
+ const at=n=>{const c=new Chess();for(let i=0;i<n;i++)c.move(hist[i].san);return c;};
+ const say=t=>{msg.textContent=t;};
+ function draw(){g=at(ply);const m={sq:{},arrows:[]};
+  if(ply){const u=hist[ply-1];m.sq[u.from]=COL.last;m.sq[u.to]=COL.last;}if(pick)m.sq[pick]=COL.pick;
+  bw.replaceChildren(boardSVG(g.fen(),orient,m,click));
+  ml.replaceChildren();hist.forEach((mv,i)=>{if(i%2===0){const n=document.createElement('span');n.className='n';
+    n.textContent=(i/2+1)+'.';ml.appendChild(n);}
+   const b=document.createElement('button');b.textContent=mv.san;b.className=i===ply-1?'cur':'';
+   b.onclick=()=>{ply=i+1;pick=null;draw();};ml.appendChild(b);});
+  if(!hist.length)ml.innerHTML='<span></span><span class="muted" style="grid-column:span 2">Click a piece, then a square.</span>';
+  const cur=ml.querySelector('.cur');if(cur)cur.scrollIntoView({block:'nearest'});}
+ function click(sq){const p=g.get(sq);
+  if(p&&p.color===g.turn()){pick=sq;draw();return;}
+  if(!pick)return;const mv=g.move({from:pick,to:sq,promotion:'q'});pick=null;
+  if(mv){hist=hist.slice(0,ply);hist.push(mv);ply++;}draw();}
+ function pgn(){const h=k=>(H(k).value||'?').replace(/"/g,"'"),res=H('Result').value;
+  let s='[Event "'+h('Event')+'"]\n[Date "'+h('Date').replace(/-/g,'.')+'"]\n[White "'+h('White')+'"]\n[Black "'+
+   h('Black')+'"]\n[Result "'+res+'"]\n\n',t='';
+  hist.forEach((mv,i)=>{t+=(i%2===0?(i/2+1)+'. ':'')+mv.san+' ';});return s+t+res+'\n';}
+ async function copy(t){try{await navigator.clipboard.writeText(t);}catch(e){const a=document.createElement('textarea');
+  a.value=t;document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();}}
+ const act={start:()=>{ply=0;},prev:()=>{ply=Math.max(0,ply-1);},next:()=>{ply=Math.min(hist.length,ply+1);},
+  end:()=>{ply=hist.length;},undo:()=>{hist=hist.slice(0,Math.max(0,ply-1));ply=hist.length;},
+  flip:()=>{orient=orient==='w'?'b':'w';},new:()=>{if(hist.length&&!confirm('Start a new game? The moves are cleared.'))return;
+   hist=[];ply=0;say('');},
+  dl:()=>{if(!hist.length){say('Play or paste some moves first.');return;}
+   const name=(H('Date').value+'_'+H('White').value+'_vs_'+H('Black').value).replace(/[^\w.-]+/g,'_')+'.pgn';
+   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([pgn()],{type:'application/x-chess-pgn'}));
+   a.download=name;a.click();URL.revokeObjectURL(a.href);
+   say('Saved '+name+'. Move it into '+root.dataset.inbox+' and run main.py: it gets analysed with your other games.');},
+  copy:async()=>{await copy(pgn());say('PGN copied.');},
+  lichess:async()=>{await copy(pgn());window.open('https://lichess.org/paste','_blank','noopener');
+   say('PGN copied: paste it on the Lichess page that opened, then press Import (free engine analysis).');},
+  load:()=>{const c=new Chess(),t=root.querySelector('.gpaste').value.trim();
+   if(!t||!c.load_pgn(t)){say('Could not read that PGN (check the moves).');return;}
+   hist=c.history({verbose:true});ply=hist.length;const hd=c.header();
+   for(const k of ['White','Black','Result','Event'])if(hd[k])H(k).value=hd[k];
+   if(hd.Date&&/^\d{4}\.\d\d\.\d\d$/.test(hd.Date))H('Date').value=hd.Date.replace(/\./g,'-');
+   say('Loaded '+hist.length+' moves.');}};
+ root.querySelectorAll('button[data-a]').forEach(b=>b.onclick=async()=>{await act[b.dataset.a]();pick=null;draw();});
+ bw.addEventListener('keydown',e=>{const k={ArrowLeft:'prev',ArrowRight:'next',Home:'start',End:'end'}[e.key];
+  if(k){e.preventDefault();act[k]();draw();}});
+ draw();});
 """

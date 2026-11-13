@@ -17,12 +17,11 @@ whole history (you vs yourself, more data).
 
     python scripts/11b_balanced_endgames.py --config configs/v0.yaml
 
-Output: stdout + data/player/balanced_endgames.html
+Output: stdout + findings/balanced_endgames.json (the report's Endgame tab, "In depth")
 """
 from __future__ import annotations
 
 import argparse
-import html
 import sys
 from pathlib import Path
 
@@ -36,7 +35,7 @@ from coach.config import data_dir, load_config
 from coach.difficulty import p_best_own
 from coach.endgame_features import READABLE, end_of, features, material_class
 from coach.handcrafted import phase
-from coach.report import page, position_card
+from coach.findings import detail, example, table, write
 from coach.results import load_analyzed
 from coach.stats import ci, game_bootstrap
 
@@ -60,7 +59,7 @@ def balanced(cfg, which):
     return df
 
 
-def rate_rows(groups, me, pop, B, min_n=20):
+def rate_rows(groups, me, pop, B, min_n=20, first="kind"):
     """Error rate per group: you (CI over games) vs peers. groups: list of (label, mask_me, mask_pop)."""
     rows, lines = [], []
     for label, mm, mp in groups:
@@ -72,15 +71,11 @@ def rate_rows(groups, me, pop, B, min_n=20):
         r_pop = (mp & pop.err.to_numpy()).sum() / mp.sum()
         clear = lo > r_pop or hi < r_pop
         tag = ("clear" if clear else "within noise")
-        cls = "muted" if not clear else ("down" if r_me > r_pop else "up")
-        rows.append(f"<tr><td>{html.escape(label)}</td><td>{mm.sum()}</td><td>{r_me:.1%} <span class='muted'>"
-                    f"[{lo:.1%}, {hi:.1%}]</span></td><td>{mp.sum()}</td><td>{r_pop:.1%}</td>"
-                    f"<td><span class='{cls}'>{tag}</span></td></tr>")
+        rows.append([label, mm.sum(), f"{r_me:.1%} [{lo:.1%}, {hi:.1%}]", mp.sum(), f"{r_pop:.1%}",
+                     ("worse" if r_me > r_pop else "better") if clear else "same"])
         lines.append(f"  {label:34s} you {r_me:5.1%} [{lo:.1%}, {hi:.1%}] (n {mm.sum()})  peers {r_pop:5.1%} "
                      f"(n {mp.sum()})  {tag}")
-    table = ("<table><tr><th></th><th>your moves</th><th>your error rate (90% CI)</th><th>peer moves</th>"
-             "<th>peers</th><th>vs peers</th></tr>" + "".join(rows) + "</table>")
-    return table, lines
+    return table([first, "your moves", "your error rate (90% CI)", "peer moves", "peers", "vs peers"], rows), lines
 
 
 def feature_directions(df):
@@ -110,23 +105,29 @@ def main() -> None:
     lines = [f"balanced endgame positions: you {len(me):,} moves in {me.game_id.nunique()} games (>= {cmp_min}), "
              f"whole history {len(me_all):,} moves; peers {len(pop):,} moves",
              f"error rate overall: you {me.err.mean():.1%}, whole history {me_all.err.mean():.1%}, peers {pop.err.mean():.1%}"]
-    body = ["<h1>Balanced endgames: what goes wrong</h1>",
-            f"<p class='muted'>Endgame positions where neither side is clearly better (best-move win probability "
-            f"0.2–0.8). Error = mistake or blunder. You: games at chess.com ≥ {cmp_min} ({len(me):,} moves, "
-            f"{me.game_id.nunique()} games); peers: {len(pop):,} moves. Overall error rate: you {me.err.mean():.1%}, "
-            f"peers {pop.err.mean():.1%}.</p>"]
+    intro = (f"Balanced endgames: neither side clearly better (best move 20–80%). You: games at ≥ {cmp_min} "
+             f"({len(me):,} moves, {me.game_id.nunique()} games); peers {len(pop):,} moves. Error rate overall: you "
+             f"{me.err.mean():.1%}, peers {pop.err.mean():.1%}.")
+    items = []
 
     # 1. by endgame type
     types = sorted(set(me.etype) | set(pop.etype))
-    t, l = rate_rows([(t_, (me.etype == t_).to_numpy(), (pop.etype == t_).to_numpy()) for t_ in types], me, pop, B)
-    body += ["<h2>1. By endgame type</h2>", t]
+    t, l = rate_rows([(t_, (me.etype == t_).to_numpy(), (pop.etype == t_).to_numpy()) for t_ in types], me, pop, B,
+                     first="endgame type")
+    worst = me_all[me_all.err].sort_values("wp_loss", ascending=False).head(9)
+    exs = [example(r.fen, r.best_line, r.played_line,
+                   f"{r.date} · {r.etype}; you moved a {r.moved}, the best move was a {r.best_piece} move · lost "
+                   f"{100 * r.wp_loss:.0f} points", r.pos_id) for r in worst.itertuples()]
+    items.append(detail("endgame:balanced-type", "endgame", "Balanced endgames by type",
+                        intro + " Boards: your worst balanced-endgame errors (whole history).", t, exs))
     lines += ["1. error rate by endgame type:"] + l
 
     # 2. by moved piece, and best-move piece not played
     pieces = ["king", "pawn", "rook", "bishop", "knight", "queen"]
     t, l = rate_rows([(f"you moved a {p}", (me.moved == p).to_numpy(), (pop.moved == p).to_numpy()) for p in pieces],
-                     me, pop, B)
-    body += ["<h2>2. By the piece moved</h2>", t]
+                     me, pop, B, first="piece moved")
+    items.append(detail("endgame:balanced-piece", "endgame", "Balanced endgames: which piece you moved",
+                        "Error rate by the piece you moved, you vs peers.", t))
     lines += ["2. error rate by the piece moved:"] + l
     miss_rows = []
     lines.append("   when the best move was a ... and you played something else (share of all such positions):")
@@ -137,10 +138,13 @@ def main() -> None:
         r_me = (bm & (me.moved != p) & me.err).sum() / bm.sum()
         r_pop = (bp & (pop.moved != p) & pop.err).sum() / bp.sum()
         lines.append(f"     best = {p} move: you erred with another piece {r_me:.1%} (n {bm.sum()}) vs peers {r_pop:.1%}")
-        miss_rows.append(f"<tr><td>best move was a {p} move</td><td>{bm.sum()}</td><td>{r_me:.1%}</td>"
-                         f"<td>{bp.sum()}</td><td>{r_pop:.1%}</td></tr>")
-    body.append("<table><tr><th></th><th>your positions</th><th>you erred with a different piece</th>"
-                "<th>peer positions</th><th>peers</th></tr>" + "".join(miss_rows) + "</table>")
+        miss_rows.append([f"best move was a {p} move", bm.sum(), f"{r_me:.1%}", bp.sum(), f"{r_pop:.1%}"])
+    if miss_rows:
+        items.append(detail("endgame:balanced-missed-piece", "endgame", "Balanced endgames: the move was a king, pawn "
+                            "or rook move", "How often you erred by moving a different piece when the best move was a "
+                            "king / pawn / rook move.",
+                            table(["", "your positions", "you erred with another piece", "peer positions", "peers"],
+                                  miss_rows)))
 
     # 3. feature directions in errors
     fd_me, fd_pop = feature_directions(me), feature_directions(pop)
@@ -161,14 +165,13 @@ def main() -> None:
             # ~60 comparisons: Bonferroni-ish |z| >= 3; errors treated as independent (not game-clustered)
             flag = "clear" if abs(z) >= 3 and (a > 0.05 or b > 0.05) else "within noise"
             lines.append(f"  {text:52s} you {a:5.1%}  peers {b:5.1%}  ({flag})")
-            rows3.append(f"<tr><td>best line had {html.escape(text)}</td><td>{a:.0%}</td><td>{b:.0%}</td>"
-                         f"<td>{flag}</td></tr>")
-    body += ["<h2>3. What the best line had that yours didn't</h2>",
-             "<p class='muted'>Endgame features compared at the end of the best line and the played line, in "
-             "errors only. Sorted by how different you are from peers; 'clear' needs |z| ≥ 3 because ~60 "
-             "comparisons are made (errors treated as independent).</p>",
-             "<table><tr><th>in your errors, the best line ended with</th><th>you</th><th>peers</th><th>vs peers</th></tr>"
-             + "".join(rows3) + "</table>"]
+            rows3.append([f"best line had {text}", f"{a:.0%}", f"{b:.0%}", flag])
+    if rows3:
+        items.append(detail("endgame:balanced-features", "endgame", "Balanced endgames: what the best line had that "
+                            "yours didn't", "Endgame features at the end of the best line vs your line, in errors only, "
+                            "sorted by how different you are from peers. 'clear' needs |z| ≥ 3 because ~60 comparisons "
+                            "are made (errors treated as independent).",
+                            table(["in your errors, the best line ended with", "you", "peers", "vs peers"], rows3)))
 
     # 4. anatomy (09c)
     paths = {n: data_dir(cfg, n) / "anatomy.parquet" for n in ("player", "population")}
@@ -186,17 +189,20 @@ def main() -> None:
         rows4 = []
         for k in dm:
             lines.append(f"  {k:38s} you {dm[k]:5.1%}  peers {dp[k]:5.1%}")
-            rows4.append(f"<tr><td>{k}</td><td>{dm[k]:.0%}</td><td>{dp[k]:.0%}</td></tr>")
-        body += ["<h2>4. How the errors were punished</h2><table><tr><th>share of errors</th><th>you</th>"
-                 "<th>peers</th></tr>" + "".join(rows4) + "</table>"]
+            rows4.append([k, f"{dm[k]:.0%}", f"{dp[k]:.0%}"])
+        items.append(detail("endgame:balanced-anatomy", "endgame", "Balanced endgames: how your errors were punished",
+                            "Share of errors by how the punishment came.",
+                            table(["share of errors", "you", "peers"], rows4)))
 
     # 5. Maia difficulty (09b)
     dme, dpo = p_best_own(cfg, me, "player"), p_best_own(cfg, pop, "population")
     if dme is not None and dpo is not None:
         bands = [(0, 0.2, "hard: Maia at your level finds best < 20%"), (0.2, 0.5, "medium: 20-50%"),
                  (0.5, 1.01, "easy: >= 50%")]
-        t, l = rate_rows([(n, (dme >= a) & (dme < b), (dpo >= a) & (dpo < b)) for a, b, n in bands], me, pop, B)
-        body += ["<h2>5. By difficulty for your level (Maia)</h2>", t]
+        t, l = rate_rows([(n, (dme >= a) & (dme < b), (dpo >= a) & (dpo < b)) for a, b, n in bands], me, pop, B,
+                         first="difficulty")
+        items.append(detail("endgame:balanced-difficulty", "endgame", "Balanced endgames by difficulty",
+                            "Error rate by how often a player at your level finds the best move (Maia).", t))
         lines += ["5. error rate by Maia difficulty:"] + l
 
     # 6. think time (you, whole history)
@@ -211,23 +217,14 @@ def main() -> None:
             if m.sum() >= 20:
                 r = me_all.err.to_numpy()[m].mean()
                 lines.append(f"  {n:8s} {m.mean():4.0%} of moves, error rate {r:.1%} (n {m.sum()})")
-                rows6.append(f"<tr><td>{n}</td><td>{m.mean():.0%}</td><td>{r:.1%}</td><td>{m.sum()}</td></tr>")
-        body += ["<h2>6. Think time (you, whole history)</h2><table><tr><th>time spent</th><th>share of moves</th>"
-                 "<th>error rate</th><th>n</th></tr>" + "".join(rows6) + "</table>"]
+                rows6.append([n, f"{m.mean():.0%}", f"{r:.1%}", m.sum()])
+        items.append(detail("endgame:balanced-time", "endgame", "Balanced endgames: think time",
+                            "Your error rate by how long you thought (whole history).",
+                            table(["time spent", "share of moves", "error rate", "n"], rows6)))
 
-    # your worst balanced-endgame errors
-    worst = me_all[me_all.err].sort_values("wp_loss", ascending=False).head(12)
-    cards = []
-    for i, r in worst.iterrows():
-        b = chess.Board(r.fen)
-        cards.append(position_card(r, note=f"{r.etype}; you moved a {r.moved}, best was a {r.best_piece} move "
-                                           f"({b.san(chess.Move.from_uci(r.best_move))})"))
-    body += ["<h2>Your worst balanced-endgame errors (whole history)</h2>", f"<div class='grid'>{''.join(cards)}</div>"]
-
-    path = data_dir(cfg, "player") / "balanced_endgames.html"
-    path.write_text(page("Balanced endgames", "".join(body)), encoding="utf-8")
+    write(cfg, "balanced_endgames", items)
     print("\n".join(lines))
-    print(f"wrote {path}")
+    print(f"{len(items)} in-depth items -> findings/balanced_endgames.json")
 
 
 if __name__ == "__main__":

@@ -10,6 +10,8 @@ A finding (dict):
   tag       solid | lead | strength | style | info | exploratory
   elo       expected rating gain if fixed (see elo_gain), or None   elo_note  how it was computed
   rank      optional ordering key (Elo x trainability); the report sorts by rank, else elo
+  detail    True = "in depth" item: tables / boards specific to a section, shown at the bottom of its tab
+            (replaces the old standalone detail pages); use detail() for these
   evidence  {"header": [...], "rows": [[...]]} or None
   examples  [{"fen", "best": [uci], "played": [uci], "note"}]  (your positions; boards in the report)
   drill     {"theme": str, "pos_ids": [player pos_ids]} or None  (puzzles; the report builds the study)
@@ -34,18 +36,33 @@ def elo_gain(win_prob_per_game: float) -> float:
 
 
 def finding(id, section, title, claim, tag, elo=None, elo_note="", evidence=None, examples=None,
-            drill=None, todo="", link=None, rank=None) -> dict:
-    """rank: optional ordering key (e.g. Elo x trainability); the report sorts by it, else by elo."""
+            drill=None, todo="", link=None, rank=None, detail=False) -> dict:
+    """rank: optional ordering key (e.g. Elo x trainability); the report sorts by it, else by elo.
+    detail: an "in depth" item (section-specific tables / boards) shown at the bottom of its tab."""
     assert section in SECTIONS, section
     num = lambda x: None if x is None or x != x else round(float(x), 1)
     return {"id": str(id), "section": section, "title": title, "claim": claim, "tag": tag,
-            "elo": num(elo), "elo_note": elo_note, "rank": num(rank),
+            "elo": num(elo), "elo_note": elo_note, "rank": num(rank), "detail": bool(detail),
             "evidence": evidence, "examples": examples or [], "drill": drill, "todo": todo, "link": link}
 
 
-def example(fen, best, played=None, note="", pos_id=None) -> dict:
+def detail(id, section, title, claim, evidence=None, examples=None) -> dict:
+    """Shorthand for an "in depth" item (tag info, no Elo)."""
+    return finding(id, section, title, claim, "info", evidence=evidence, examples=examples, detail=True)
+
+
+def table(header, rows) -> dict:
+    """Evidence table in the findings format (cells are HTML-escaped by the report)."""
+    return {"header": [str(h) for h in header], "rows": [[str(c) for c in r] for r in rows]}
+
+
+def example(fen, best, played=None, note="", pos_id=None, labels=None) -> dict:
+    """labels: names of the two lines on the board (default "best line" / "your move")."""
     as_list = lambda x: [] if x is None else [str(u) for u in list(x)]
-    return {"fen": fen, "best": as_list(best), "played": as_list(played), "note": note, "pos_id": pos_id}
+    out = {"fen": fen, "best": as_list(best), "played": as_list(played), "note": note, "pos_id": pos_id}
+    if labels:
+        out["labels"] = list(labels)
+    return out
 
 
 def write(cfg, module: str, items: list[dict], expand: bool = True) -> None:

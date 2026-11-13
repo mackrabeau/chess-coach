@@ -283,7 +283,7 @@ def main() -> None:
     Fi.append("<h2>Each player's report</h2><ul>" + "".join(
         f"<li><a href='{esc(rel(data_dir(c, 'player') / 'report.html', out))}'>{esc(c['player']['username'])}</a></li>"
         for c in (cfgA, cfgB)) + "</ul>")
-    Fi.append(files_section(out, [], sorted(out.glob("*.pgn"))))
+    Fi.append(files_section(out, sorted(out.glob("*.pgn"))))
     rep.write(out / "report.html")
     build_index(cfgA)
     print(f"{A.name} → {B.name}: {n['ab']} exploitable positions; {B.name} → {A.name}: {n['ba']}; "

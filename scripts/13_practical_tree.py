@@ -28,7 +28,7 @@ Reports
     python scripts/13_practical_tree.py --config configs/v0.yaml            # both sets, tree.n each
     python scripts/13_practical_tree.py --config configs/v0.yaml --n 50     # quick test
 
-Output: data/<set>/practical_tree.parquet, data/player/practical_tree_report.html
+Output: data/<set>/practical_tree.parquet, findings/practical.json (Exploitation tab, "In depth")
 Config (optional block `tree:`; defaults below): n 600, opp_mass 0.85, max_opp 4,
 self_mass 0.85, max_self 4, nodes 300000, p_grid [0, 0.25, 0.5, 0.75, 1].
 """
@@ -51,7 +51,7 @@ from coach.difficulty import player_maia_elo
 from coach.engine import Analyzer
 from coach.handcrafted import phase
 from coach.maia import Maia, maia_lists
-from coach.report import page, position_card
+from coach.findings import detail, example, table, write
 from coach.results import load_analyzed
 
 TREE = {"n": 600, "opp_mass": 0.85, "max_opp": 4, "self_mass": 0.85, "max_self": 4, "nodes": 300000,
@@ -307,29 +307,32 @@ def summarize(name, T, c):
     return P, L
 
 
-def report(cfg, df, P):
+def report(cfg, P, L):
+    """The Exploitation tab's "In depth" item: the summary numbers + boards where a simpler move is better in
+    practice for you (findings/practical.json)."""
     if P.empty:
+        write(cfg, "practical", [])
         return
-    fen_of = df.set_index("pos_id")
-    ex = P[(P.self_move != P.sf_move) & (P.sf_discount - P.self_disc >= 0.03)]
-    ex = ex.sort_values("self_gain", ascending=False).head(12)
-    cards = []
-    for r in ex.itertuples():
-        row = fen_of.loc[r.pos_id].copy()
-        row["move"], row["best_move"] = r.self_move, r.sf_move
-        row["best_line"], row["played_line"] = [r.sf_move], [r.self_move]
-        row["wp_loss"] = r.self_cost
-        b = chess.Board(row.fen)
-        cards.append(position_card(row, note=(
-            f"Stockfish: {b.san(chess.Move.from_uci(r.sf_move))} (you'd likely give back "
-            f"{100 * r.sf_discount:.0f} pts in the follow-up); simpler: {b.san(chess.Move.from_uci(r.self_move))} "
-            f"(gives back {100 * r.self_disc:.0f}); net gain {100 * r.self_gain:+.1f}, objective cost "
-            f"{100 * r.self_cost:.1f}")))
-    body = ("<h1>Practical value with your follow-up</h1><p class='muted'>Positions where Stockfish's move leads "
-            "to a line you would likely misplay (Maia at your level for your next move) and a move within a small "
-            "margin is better in practice. Green = Stockfish's best, red = the practical move. Win-probability "
-            f"points.</p><div class='grid'>{''.join(cards)}</div>")
-    (data_dir(cfg, "player") / "practical_tree_report.html").write_text(page("Practical tree", body), encoding="utf-8")
+    pos = pd.read_parquet(data_dir(cfg, "player") / "positions.parquet", columns=["pos_id", "fen", "date"])
+    pos = pos.set_index("pos_id")
+    ex = P[(P.self_move != P.sf_move) & (P.sf_discount - P.self_disc >= 0.03) & P.pos_id.isin(pos.index)]
+    exs = []
+    for r in ex.sort_values("self_gain", ascending=False).head(9).itertuples():
+        fen = pos.fen[r.pos_id]
+        b = chess.Board(fen)
+        exs.append(example(fen, [r.sf_move], [r.self_move],
+                           f"{pos.date[r.pos_id]} · after Stockfish's {b.san(chess.Move.from_uci(r.sf_move))} you'd "
+                           f"likely give back {100 * r.sf_discount:.0f} points in the follow-up; "
+                           f"{b.san(chess.Move.from_uci(r.self_move))} gives back {100 * r.self_disc:.0f} · net gain "
+                           f"{100 * r.self_gain:+.1f}, objective cost {100 * r.self_cost:.1f}", r.pos_id,
+                           labels=("Stockfish", "practical move")))
+    rows = [[x.strip()] for x in L if x.strip() and not x.startswith("[")]
+    write(cfg, "practical", [detail(
+        "practical:tree", "exploit", "Practical moves: when the engine's best is hard for you to follow up",
+        "Positions where Stockfish's move leads to a line you'd likely misplay (Maia at your level plays your next "
+        "move) and a move within a small margin is better in practice. Win-probability points. The table is the "
+        "model's summary (including how well it predicted your real follow-ups).",
+        table(["summary (your games)"], rows), exs)])
 
 
 def main() -> None:
@@ -339,18 +342,26 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=None, help="positions per set (default tree.n)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--workers", type=int, default=None)
+    ap.add_argument("--report-only", action="store_true",
+                    help="rebuild the report item from the saved practical_tree.parquet (no engine / Maia)")
     args = ap.parse_args()
     cfg = load_config(args.config)
     n = args.n or cfg.get("tree", {}).get("n", TREE["n"])
     workers = args.workers or cfg["engine"]["workers"]
-    maia = Maia(cfg["maia"]["model"])
     lines = []
+    if args.report_only:
+        c = {**cfg["practical"], **TREE, **cfg.get("tree", {})}
+        P, L = summarize("player", pd.read_parquet(data_dir(cfg, "player") / "practical_tree.parquet"), c)
+        report(cfg, P, L)
+        print("\n".join(L))
+        return
+    maia = Maia(cfg["maia"]["model"])
     for name in (["player", "population"] if args.set == "both" else [args.set]):
         df, T, c = analyse_set(cfg, name, n, args.seed, workers, maia)
         P, L = summarize(name, T, c)
         lines += L
         if name == "player":
-            report(cfg, df, P)
+            report(cfg, P, L)
     print("\n" + "\n".join(lines))
 
 

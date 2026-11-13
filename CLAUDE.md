@@ -78,14 +78,15 @@ The chess.com → Maia offset is fitted per player by 09b (`player/maia_offset.j
 00 fetch chess.com games · 01 mine Lichess peers for the band (dump streamed) · 01b peer results + status · 01c
 Syzygy 3-4-5 · 02 Stockfish (`coach/runner.engine_pass`) · 03 settle lines (quiescence) · 05 feature deltas · 06
 ideas (concept groups; NMF path kept for SAE) · 06c deepen no-swing tactics · 07/07b idea + tactics inspection · 08
-detailed player report (+ tactics findings) · 09b Maia-3 curves + offset fit · 09c error anatomy · 09d Maia opponent
+tactics findings + middlegame in-depth tables · 09b Maia-3 curves + offset fit · 09c error anatomy · 09d Maia opponent
 model · 11 endgames (outcomes, tablebase) · 11b balanced endgames · 13 practical tree · 14 openings (engine-only;
 book from the dump) · 14b opening findings · 15 score accounting · 16 skill profile · 17 multi-band (skill vs style;
 reuses any peer set covering a band) · 17b category findings · 18 opening traps · 19 repertoire ("your lines,
 extended", Lichess studies via `coach/study.py`) · 22 import PGN games · 24 weakness model (stage `weakness`:
 peer error model across bands + your excess per concept, `coach/weakness.py` + `coach/motifs.py`; runs beside
 08/16/17/17b until validated, then those slice findings get retired) · 20 report (aggregates findings: Summary +
-Opening/Middlegame/Endgame by `rank` (Elo × trainability) else Elo, Exploitation, Games, Drills, Method, Files) ·
+Opening/Middlegame/Endgame by `rank` (Elo × trainability) else Elo, each with a collapsed "In depth" part,
+Exploitation, Games (analysis board → PGN → `imported/inbox/`), Drills (copy/download PGN), How sure are we, Files) ·
 23 head-to-head.
 Shared code: `coach/` (runner, results, categories, openings, maia, difficulty, stats, findings, why, game_rating,
 webreport, hub, report, study, lines, bands, motifs, weakness). `coach/lines.follow_up` turns a move into move + engine continuation (cached);
@@ -120,7 +121,10 @@ win prob = Lichess logistic; ok < 0.03 ≤ mistake ≤ 0.20 < blunder; critical 
 - When rewriting a code path (e.g. puzzle rendering), remove the old/unused path in the same edit; no dead code.
 
 ## Report UI (do this, don't re-derive it)
-- Where: `coach/webreport.py` holds `BASE_CSS` (tokens, type, tables; also used by `coach/report.py` detailed
+- No standalone detail pages: a module's section-specific tables/boards are findings with `detail=True`
+  (`findings.detail()` + `findings.table()`; cells are plain text, the report escapes them), shown under "In depth"
+  in their tab. `coach/report.py` only serves the developer pages (07/07b, hub's Developer tab).
+- Where: `coach/webreport.py` holds `BASE_CSS` (tokens, type, tables; also used by `coach/report.py` developer
   pages), `CSS`, `JS` (boards, tabs, theme) and the components (`finding`, `table`, `kpis`, `example`) used by 20,
   23 and the hub. Display names: `PLAIN` in `coach/categories.py` + `plain_title()` (category ids stay the data
   keys). Before changing how a label renders, grep every call site (`Report.finding`, `Report.table`, `esc(c)` in
@@ -143,7 +147,7 @@ win prob = Lichess logistic; ok < 0.03 ≤ mistake ≤ 0.20 < blunder; critical 
   - Static boards ≥ 200px (`clamp(200px, 40vw, 320px)`), last move's from/to squares tinted, one-line caption
     (move no., side to move, best vs played with evals). This rule is inferred, not from source; tint colour unverified.
 - Loop: regenerate (`python scripts/20_report.py --config configs/v0.yaml` is seconds; 23 for head-to-head;
-  detailed pages need `main.py --force <their stages>`), then look at it, then test it. Check several tabs/pages,
+  in-depth items need `main.py --force <their stages>`), then look at it, then test it. Check several tabs/pages,
   not just one, and every board both normal and flipped (labels and light/dark squares must stay correct):
   - Screenshot a tab: copy the HTML, inject `<script>show('<tab>')</script>` before `</body>`, then
     `chrome.exe --headless=new --disable-gpu --hide-scrollbars --user-data-dir=<scratch> --window-size=1280,2000

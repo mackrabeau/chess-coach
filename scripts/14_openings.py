@@ -15,7 +15,7 @@ Three cached stages (rerun skips finished ones; --rebuild redoes stage 2):
      every move you or your opponents played there, and moves with >= openings.pop_share at the
      peer band or 2400+; plus the out-of-the-opening positions (yours and peers').
 
-Report (stdout + data/player/openings_report.html)
+Report (stdout + openings/report_items.json, read by 14b)
   A. Out of the opening: your win prob at move 10 (ply 20 as White / 21 as Black) vs peers;
      by opening; and how that eval converts into results (you and peers).
   B. Moves you play repeatedly (>= 2x) that lose >= openings.flag (5) points by the engine, ranked
@@ -48,7 +48,6 @@ from coach.config import data_dir, load_config, resolve
 from coach.mine import is_rapid, mover_score
 from coach.openings import band_labels, evaluate, player_tree, san_tokens
 from coach.pgn_stream import iter_raw_games
-from coach.report import page, position_card
 
 OPEN = {"max_ply": 30, "min_count": 3, "min_visits": 2, "flag": 0.05, "dump_games": 2_000_000, "bands": [1600, 1800, 2000, 2200, 2400, 4000],
         "nodes": 300000, "multipv": 3, "peer_sample": 3000, "out_ply": 20, "leave_k": 4, "pop_share": 0.05,
@@ -162,12 +161,6 @@ def top_move(view, fen):
     return f"{san(fen, r.move)} {r.n / view.n.sum():.0%} (scores {r.score:.2f}, n {int(view.n.sum())})"
 
 
-def card(fen, move, best, loss, note):
-    r = pd.Series({"fen": fen, "move": move, "best_move": best, "best_line": [best], "played_line": [move],
-                   "wp_loss": loss, "phase": "opening"})
-    return position_card(r, note=note)
-
-
 # ---------------------------------------------------------------- main
 def main() -> None:
     ap = argparse.ArgumentParser()
@@ -231,18 +224,15 @@ def main() -> None:
         r = E.get(pid)
         return max(r[1].values()) if r and r[1] else np.nan
 
-    L, body = [], ["<h1>Openings</h1>",
-                   f"<p class='muted'>Your chess.com rapid games, first {oc['max_ply'] // 2} moves, judged by the engine "
-                   f"only (peers = Lichess rapid {peer_band}, used only as the out-of-opening baseline). Stockfish "
-                   f"{oc['nodes']:,} nodes. Win-probability points.</p>"]
+    L = []
 
     # A. out of the opening
     outs["wp"] = [wp_best("out:" + g) for g in outs.game_id]
     peers["wp"] = [wp_best(f"peer:{i}") for i in range(len(peers))]
     ro = outs[outs.rating >= cmp_min]
     L.append(f"A. out of the opening (move {oc['out_ply'] // 2 + 1}, side to move = you), mean win prob:")
-    rows = []
-    items = {"out": {}, "costly": [], "must_know": [], "missed_punish": []}   # for the report (20)
+    items = {"out": {}, "out_conv": [], "by_opening": [], "costly": [], "must_know": [], "missed_punish": [],
+             "out_ply": oc["out_ply"], "peer_band": peer_band}          # for 14b -> the report (20)
     for col in ("white", "black"):
         a, p = ro[ro.color == col], peers[peers.color == col]
         lo, hi = boot_mean(a.wp)
@@ -251,33 +241,22 @@ def main() -> None:
         tag = "clear" if np.isfinite(lo) and (p.wp.mean() < lo or p.wp.mean() > hi) else "within noise"
         L.append(f"   as {col}: you {a.wp.mean():.3f} [{lo:.3f}, {hi:.3f}] (n {a.wp.notna().sum()}) vs peers "
                  f"{p.wp.mean():.3f} (n {p.wp.notna().sum()})  {tag}")
-        rows.append(f"<tr><td>{col}</td><td>{a.wp.mean():.3f} [{lo:.3f}, {hi:.3f}]</td><td>{p.wp.mean():.3f}</td>"
-                    f"<td>{tag}</td></tr>")
-    body += ["<h2>A. Out of the opening</h2><table><tr><th>as</th><th>your win prob at move "
-             f"{oc['out_ply'] // 2 + 1} (90% CI)</th><th>peers</th><th></th></tr>" + "".join(rows) + "</table>"]
     L.append("   how that converts into results (score by win prob out of the opening):")
-    conv = []
     for a, b in [(0, 0.35), (0.35, 0.45), (0.45, 0.55), (0.55, 0.65), (0.65, 1.01)]:
         m1 = (ro.wp >= a) & (ro.wp < b) & ro.result.notna()
         m2 = (peers.wp >= a) & (peers.wp < b) & peers.result.notna()
         if m1.sum() >= 10:
             L.append(f"     {a:.2f}-{min(b, 1):.2f}: you {ro.result[m1].mean():.2f} (n {m1.sum()}), "
                      f"peers {peers.result[m2].mean():.2f} (n {m2.sum()})")
-            conv.append(f"<tr><td>{a:.2f}–{min(b, 1):.2f}</td><td>{ro.result[m1].mean():.2f} ({m1.sum()})</td>"
-                        f"<td>{peers.result[m2].mean():.2f} ({m2.sum()})</td></tr>")
-    body.append("<h3>Score by win prob out of the opening</h3><table><tr><th>win prob</th><th>your score (n)</th>"
-                "<th>peers (n)</th></tr>" + "".join(conv) + "</table>")
+            items["out_conv"].append([f"{a:.0%}–{min(b, 1):.0%}", f"{ro.result[m1].mean():.2f} ({m1.sum()})",
+                                      f"{peers.result[m2].mean():.2f} ({m2.sum()})"])
     fam = ro.groupby(["color", "family"]).agg(n=("wp", "size"), wp=("wp", "mean"), score=("result", "mean"))
     fam = fam[fam.n >= 8].sort_values("n", ascending=False)
     L.append("   by opening (>= 8 games): games | win prob out of the opening | score")
-    frows = []
     for (col, f), r in fam.head(20).iterrows():
         pw = peers[peers.color == col].wp.mean()
         L.append(f"     {col:5s} {f[:40]:40s} {int(r.n):4d} | {r.wp:.3f} ({r.wp - pw:+.3f} vs peers) | {r.score:.2f}")
-        frows.append(f"<tr><td>{col}</td><td>{f}</td><td>{int(r.n)}</td><td>{r.wp:.3f}</td><td>{r.wp - pw:+.3f}</td>"
-                     f"<td>{r.score:.2f}</td></tr>")
-    body.append("<h3>By opening</h3><table><tr><th>as</th><th>opening</th><th>games</th><th>win prob out of opening"
-                "</th><th>vs peers (all openings)</th><th>score</th></tr>" + "".join(frows) + "</table>")
+        items["by_opening"].append([col, f, int(r.n), f"{r.wp:.1%}", f"{100 * (r.wp - pw):+.1f}", f"{r.score:.2f}"])
 
     # B. frequent inaccurate moves
     mine = recent[recent.mine]
@@ -295,20 +274,14 @@ def main() -> None:
             recs.append((r.c * loss, r, best, vals, loss))
     recs.sort(key=lambda x: -x[0])
     L.append(f"B. moves you play repeatedly that lose >= {100 * oc['flag']:.0f} points by the engine (ranked by count x loss):")
-    cards = []
     for tot, r, best, vals, loss in recs[:15]:
         line = f"{r.path} [{san(r.fen, r.move)}]".strip()
         alts = ", ".join(f"{san(r.fen, m)} {100 * (vals[best] - v):.1f}" for m, v in list(vals.items())[:3])
         L.append(f"   {line}")
         L.append(f"      you {r.c}x, loses {100 * loss:.1f} (your score {r.score:.2f}); engine: {san(r.fen, best)} "
                  f"(top moves, points below best: {alts})")
-        cards.append(card(r.fen, r.move, best, loss,
-                          f"{line} · you played this {r.c}x (score {r.score:.2f}) · engine top: {alts}"))
         items["costly"].append({"line": line, "fen": r.fen, "move": r.move, "best": best, "loss": float(loss),
                                 "count": int(r.c), "score": float(r.score), "alts": alts})
-    body += ["<h2>B. Moves you play a lot that cost win probability</h2>",
-             "<p class='muted'>Red = your move, green = Stockfish's. Ranked by how often × how much.</p>",
-             f"<div class='grid'>{''.join(cards)}</div>"]
 
     # C. must-know positions + punishing opponents' mistakes
     crit = []
@@ -327,7 +300,6 @@ def main() -> None:
         crit.append({"epd": e, "fen": fen_of[e], "visits": len(visits), "hit": hit, "peer": gr, "best": ev[0],
                      "path": visits.path.iloc[0], "usual": visits.move.mode().iat[0], "vals": ev[1]})
     C = pd.DataFrame(crit)
-    cards = []
     if len(C):
         w = C.visits
         L.append(f"C. must-know positions (one good move, gap >= {100 * oc['critical_gap']:.0f}): {len(C)} positions, "
@@ -336,9 +308,6 @@ def main() -> None:
         for r in C.sort_values("missed", ascending=False).head(10).itertuples():
             L.append(f"   {r.path} -> {san(r.fen, r.best)}: you {r.hit:.0%} of {r.visits}")
             loss = max(r.vals.values()) - r.vals.get(r.usual, min(r.vals.values()))
-            cards.append(card(r.fen, r.usual, r.best, loss,
-                              f"{r.path} · only good move {san(r.fen, r.best)} · you found it {r.hit:.0%} of "
-                              f"{r.visits}"))
             items["must_know"].append({"line": r.path, "fen": r.fen, "move": r.usual, "best": r.best,
                                        "loss": float(loss), "hit": float(r.hit), "visits": int(r.visits)})
     else:
@@ -375,19 +344,13 @@ def main() -> None:
             L.append(f"     missed {int(r.n)}x: {r.path} -> {san(r.fen, r.best)} (you played {san(r.fen, r.move)})")
             items["missed_punish"].append({"line": r.path, "fen": r.fen, "move": r.move, "best": r.best,
                                            "loss": float(r.loss), "count": int(r.n)})
-            cards.append(card(r.fen, r.move, r.best, r.loss, f"{r.path} · opponent erred; punish with "
-                              f"{san(r.fen, r.best)} · you missed it {int(r.n)}x"))
-    body += ["<h2>C. Must-know positions and punishing opening mistakes</h2>",
-             f"<div class='grid'>{''.join(cards)}</div>"]
 
     print("\n".join(L))
     if len(Pn):
         items["punish_rate"] = float(Pn.found.mean())
         items["punish_n"] = int(len(Pn))
     (out / "report_items.json").write_text(json.dumps(items, indent=1), encoding="utf-8")
-    path = data_dir(cfg, "player") / "openings_report.html"
-    path.write_text(page("Openings", "".join(body)), encoding="utf-8")
-    print(f"wrote {path}")
+    print(f"wrote {out / 'report_items.json'} (14b turns it into findings and the Opening tab's in-depth tables)")
 
 
 if __name__ == "__main__":

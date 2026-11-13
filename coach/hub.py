@@ -23,13 +23,9 @@ def _stamp(p: Path) -> str:
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(p.stat().st_mtime))
 
 
-def files_section(page_dir: Path, htmls: list[Path], pgns: list[Path]) -> str:
-    """Links to detailed reports and every study (copy / download / Lichess) as HTML."""
+def files_section(page_dir: Path, pgns: list[Path]) -> str:
+    """Every study (copy / download / Lichess) as HTML."""
     out = []
-    if htmls:
-        out.append("<h2>Detailed reports</h2><ul>" + "".join(
-            f"<li><a href='{esc(rel(p, page_dir))}'>{esc(p.stem.replace('_', ' '))}</a> "
-            f"<span class='muted'>· {_stamp(p)}</span></li>" for p in htmls) + "</ul>")
     if pgns:
         rows = []
         for i, p in enumerate(pgns):
@@ -56,16 +52,21 @@ def build_index(cfg) -> Path:
         P.append("<p class='muted'>No players yet: python main.py --config configs/local/&lt;you&gt;.yaml</p>")
     for d in players:
         main = d / "report.html"
-        others = sorted(p for p in d.glob("*.html") if p.name != "report.html")
-        link = (f"<a href='{esc(rel(main, root))}'><b>main report</b></a> <span class='muted'>· {_stamp(main)}</span>"
-                if main.exists() else "<span class='muted'>no main report yet (run main.py)</span>")
-        P.append(Report.finding(d.parent.name, link + "<br>" + " · ".join(
-            f"<a href='{esc(rel(p, root))}'>{esc(p.stem.replace('_', ' '))}</a>" for p in others), "info"))
+        link = (f"<a href='{esc(rel(main, root))}'><b>report</b></a> <span class='muted'>· {_stamp(main)}</span>"
+                if main.exists() else "<span class='muted'>no report yet (run main.py)</span>")
+        P.append(Report.finding(d.parent.name, link, "info"))
     C = rep.tab("compare", "Comparisons")
     comps = sorted((root / "compare").glob("*/report.html"))
     C += [Report.finding(c.parent.name.replace("_vs_", " vs "),
                          f"<a href='{esc(rel(c, root))}'><b>open</b></a> <span class='muted'>· {_stamp(c)}</span>", "info")
           for c in comps] or ["<p class='muted'>None yet: python scripts/23_compare_players.py --config A --other B</p>"]
+    D = rep.tab("dev", "Developer")
+    dev = sorted(root.glob("population_*/ideas/*.html"))
+    D.append("<p class='muted'>Diagnostic pages for checking the detectors (07 / 07b): peer positions per learned "
+             "idea and per tactic motif. Not part of any player's report.</p>"
+             + ("<ul>" + "".join(f"<li><a href='{esc(rel(p, root))}'>{esc(p.parent.parent.name)}: "
+                                 f"{esc(p.stem.replace('_', ' '))}</a> <span class='muted'>· {_stamp(p)}</span></li>"
+                                 for p in dev) + "</ul>" if dev else "<p class='muted'>None yet.</p>"))
     L = rep.tab("logs", "Logs")
     logs = sorted((root / "logs").glob("main_*.log"), key=lambda p: p.stat().st_mtime, reverse=True)[:10]
     L.append("<ul>" + "".join(f"<li><a href='{esc(rel(p, root))}'>{esc(p.name)}</a></li>" for p in logs) + "</ul>"

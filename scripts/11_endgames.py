@@ -17,7 +17,7 @@ C. Theoretical endgames (tablebase). Positions with few enough pieces for your l
 
     python scripts/11_endgames.py --config configs/v0.yaml
 
-Output: stdout + data/player/endgame_report.html
+Output: stdout + findings/endgames.json (the report's Endgame tab, "In depth")
 """
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ from coach.config import data_dir, load_config, resolve
 from coach.endgame_features import material_class
 from coach.handcrafted import phase
 from coach.outcomes import mover_results
-from coach.report import page, position_card
+from coach.findings import detail, example, table, write
 from coach.results import load_analyzed
 
 EVAL_BINS = [(0.0, 0.2, "losing"), (0.2, 0.4, "worse"), (0.4, 0.6, "equal"),
@@ -73,16 +73,13 @@ def outcome_table(me, pop, B, rng):
         wdl = lambda x: ((x == 1).mean(), (x == 0.5).mean(), (x == 0).mean())
         wm, dm, lm = wdl(s)
         wp, dp, lp = wdl(p.score.to_numpy())
-        rows.append(f"<tr><td>{name}</td><td>{len(m)}</td><td>{s.mean():.2f} <span class='muted'>"
-                    f"[{lo_s:.2f}, {hi_s:.2f}]</span></td><td>{sp:.2f}</td><td>{flag}</td>"
-                    f"<td>{wm:.0%} / {dm:.0%} / {lm:.0%}</td><td>{wp:.0%} / {dp:.0%} / {lp:.0%}</td>"
-                    f"<td>{len(p)}</td></tr>")
+        rows.append([name, len(m), f"{s.mean():.2f} [{lo_s:.2f}, {hi_s:.2f}]", f"{sp:.2f}", flag,
+                     f"{wm:.0%} / {dm:.0%} / {lm:.0%}", f"{wp:.0%} / {dp:.0%} / {lp:.0%}", len(p)])
         lines.append(f"  {name:8s} you {s.mean():.2f} [{lo_s:.2f}, {hi_s:.2f}] (W/D/L {wm:.0%}/{dm:.0%}/{lm:.0%}, "
                      f"n {len(m)})  peers {sp:.2f} (W/D/L {wp:.0%}/{dp:.0%}/{lp:.0%}, n {len(p)})  {flag}")
-    html_t = ("<table><tr><th>engine says, for the side to move</th><th>your games</th>"
-              "<th>your final score (90% CI)</th><th>peers</th><th>vs peers</th><th>you W / D / L</th>"
-              "<th>peers W / D / L</th><th>peer games</th></tr>" + "".join(rows) + "</table>")
-    return html_t, lines
+    header = ["engine says (side to move)", "your games", "your final score (90% CI)", "peers", "vs peers",
+              "you W / D / L", "peers W / D / L", "peer games"]
+    return table(header, rows), lines
 
 
 def counterplay(df):
@@ -168,18 +165,16 @@ def theory_table(tm, tp):
         lo_r, hi_r = wilson(int(m.error.sum()), len(m))
         clear = len(p) >= 30 and (lo_r > rp or hi_r < rp)
         wm = m[m.before == 2]
-        rows.append(f"<tr><td>{c}</td><td>{len(m)}</td><td>{rm:.1%} <span class='muted'>[{lo_r:.1%}, {hi_r:.1%}]"
-                    f"</span>{' <span class=down>clear</span>' if clear and rm > rp else ' <span class=up>clear</span>' if clear else ''}"
-                    f"</td><td>{len(p)}</td><td>{rp:.1%}</td>"
-                    f"<td>{len(wm)}</td><td>{(wm.after < 2).mean() if len(wm) else float('nan'):.1%}</td></tr>")
+        verdict = ("worse" if rm > rp else "better") if clear else "same"
+        rows.append([c, len(m), f"{rm:.1%} [{lo_r:.1%}, {hi_r:.1%}]", len(p), f"{rp:.1%}", verdict, len(wm),
+                     f"{(wm.after < 2).mean() if len(wm) else float('nan'):.1%}"])
         lines.append(f"  {c:20s} you: {m.error.sum()}/{len(m)} moves threw the result ({rm:.1%} [{lo_r:.1%}, {hi_r:.1%}])"
                      f"{'  CLEAR' if clear else ''}   "
                      f"peers: {int(p.error.sum()) if len(p) else 0}/{len(p)} ({rp:.1%})   "
                      f"from won positions you let it slip {(wm.after < 2).mean() if len(wm) else float('nan'):.1%} (n {len(wm)})")
-    t = ("<table><tr><th>endgame type</th><th>your moves (won / drawn positions)</th><th>threw the result</th>"
-         "<th>peer moves</th><th>peers threw it</th><th>your moves from won positions</th>"
-         "<th>win let slip</th></tr>" + "".join(rows) + "</table>")
-    return t, lines
+    header = ["endgame type", "your moves (won/drawn)", "threw the result", "peer moves", "peers threw it",
+              "vs peers", "your moves from won", "win let slip"]
+    return table(header, rows), lines
 
 
 def main() -> None:
@@ -192,17 +187,12 @@ def main() -> None:
     cmp_min = cfg["player"]["min_player_rating"]
     me_all, pop = prep(cfg, "player"), prep(cfg, "population")
     me = me_all[me_all.mover_rating >= cmp_min]
-    body = ["<h1>Endgames</h1>"]
-    out_lines = []
+    items, out_lines = [], []
 
     # A. practical endgames
     if me.score.notna().any() and pop.score.notna().any():
         t, l = outcome_table(one_per_game(me), one_per_game(pop), B, rng)
-        body += ["<h2>Practical endgames: what happens from here</h2>", t,
-                 "<p class='muted'>One random endgame position per game (you: games at chess.com ≥ "
-                 f"{cmp_min}), grouped by Stockfish's win probability for the side to move, then the final "
-                 "result. Winning row = conversion, worse / equal rows = holding. Immune to resigning habits "
-                 "and to how many moves a game lasts.</p>"]
+        outcome_ev = t
         out_lines += ["A. practical endgames (final score from one endgame position per game):"] + l
         # contested-only loss per move, per game averaged (resign-proof version of the old metric)
         def contested(df):
@@ -215,10 +205,12 @@ def main() -> None:
         out_lines.append(f"  contested endgame positions only (win prob 0.2-0.8), loss per 100 moves averaged per game: "
                          f"you {gm.mean():.2f} [{lo_c:.2f}, {hi_c:.2f}] ({len(gm)} games) vs peers {gp.mean():.2f} "
                          f"({len(gp)} games)  {verdict}")
-        body.append(f"<p>Contested endgame positions only (win probability 0.2–0.8), win probability lost per 100 "
-                    f"moves, averaged per game: you {gm.mean():.2f} <span class='muted'>[{lo_c:.2f}, {hi_c:.2f}], "
-                    f"{len(gm)} games</span> vs peers {gp.mean():.2f} <span class='muted'>({len(gp)} games)</span> "
-                    f"— {verdict}.</p>")
+        items.append(detail("endgame:outcomes", "endgame", "What happens from an endgame position",
+                            "One random endgame position per game, grouped by how good Stockfish says it is, then "
+                            "the final result: the winning row is converting, the worse/equal rows are holding. "
+                            "Immune to resigning habits and game length. In balanced endgame positions only, you lose "
+                            f"{gm.mean():.2f} win-probability points per 100 moves [{lo_c:.2f}, {hi_c:.2f}] vs peers "
+                            f"{gp.mean():.2f} ({verdict}).", outcome_ev))
     else:
         out_lines.append("A. skipped: no game results yet (re-run 00; run 01b for peers)")
 
@@ -235,12 +227,12 @@ def main() -> None:
                 back = (sub.min_after < 0.6).mean()
                 lines.append(f"  {yr}: {len(sub)} games; eval fell back below 60% in {back:.0%}; "
                              f"final score {sub.score.mean():.2f} (won {(sub.score == 1).mean():.0%})")
-                rows.append(f"<tr><td>{yr}</td><td>{len(sub)}</td><td>{back:.0%}</td>"
-                            f"<td>{sub.score.mean():.2f}</td><td>{(sub.score == 1).mean():.0%}</td></tr>")
+                rows.append([yr, len(sub), f"{back:.0%}", f"{sub.score.mean():.2f}", f"{(sub.score == 1).mean():.0%}"])
             out_lines += lines
-            body += ["<h2>Counterplay after reaching a winning endgame (you, whole history)</h2>",
-                     "<table><tr><th>year</th><th>games</th><th>eval fell back below 60%</th>"
-                     "<th>final score</th><th>won</th></tr>" + "".join(rows) + "</table>"]
+            items.append(detail("endgame:counterplay", "endgame", "After you reach a winning endgame",
+                                "Your games, by year: how often the position slipped back below 60% after you first "
+                                "had a winning endgame, and how those games ended.",
+                                table(["year", "games", "fell back below 60%", "final score", "won"], rows)))
 
     # C. theoretical endgames
     tb_path = cfg.get("endgames", {}).get("syzygy_path")
@@ -251,28 +243,31 @@ def main() -> None:
         tm = tm_all[me_all.mover_rating.to_numpy()[tm_all.row.to_numpy()] >= cmp_min] if len(tm_all) else tm_all
         t, l = theory_table(tm, tp)
         t2, l2 = theory_table(tm_all, tp)
-        body += ["<h2>Theoretical endgames (tablebase)</h2>",
-                 f"<p class='muted'>Positions your tablebase files cover. Only moves from won or drawn positions "
-                 f"count; an error throws the result away. Your games at ≥ {cmp_min}:</p>", t,
-                 "<p class='muted'>Your whole history:</p>", t2]
         out_lines += [f"C. theoretical endgames, your games >= {cmp_min} vs peers:"] + l
         out_lines += ["   whole history:"] + l2
+        exs = []
         if len(tm_all):
             errs = tm_all[tm_all.error].copy()
             errs["severity"] = errs.before - errs.after
-            errs = errs.sort_values("severity", ascending=False).head(12)
+            errs = errs.sort_values("severity", ascending=False).head(9)
             names = {2: "win", 0: "draw", -2: "loss"}
-            cards = "".join(position_card(me_all.iloc[r.row], note=(
-                f"tablebase: {names[r.before]} → {names[r.after]}; keeping moves: "
-                f"{', '.join(r.good_moves[:6]) or '—'}")) for r in errs.itertuples())
-            body += ["<h3>Your result-throwing moves</h3>", f"<div class='grid'>{cards}</div>"]
+            for r in errs.itertuples():
+                x = me_all.iloc[r.row]
+                exs.append(example(x.fen, x.best_line, x.played_line,
+                                   f"{x.date} · tablebase: {names[r.before]} → {names[r.after]}; moves that keep it: "
+                                   f"{', '.join(r.good_moves[:6]) or '—'}", x.pos_id))
+        items.append(detail("endgame:tablebase", "endgame", "Theoretical endgames (tablebase)",
+                            "Positions with few enough pieces for the tablebase. Only moves from won or drawn positions "
+                            f"count; an error throws the result away. Table: your games at ≥ {cmp_min}. Boards: your "
+                            "worst result-throwing moves (whole history).", t, exs))
+        items.append(detail("endgame:tablebase-all", "endgame", "Theoretical endgames, your whole history",
+                            "Same table over all your games (more data, includes your lower-rated years).", t2))
     else:
         out_lines.append("C. skipped: set endgames.syzygy_path to your Syzygy folder (3-4-5 WDL + DTZ files)")
 
-    path = data_dir(cfg, "player") / "endgame_report.html"
-    path.write_text(page("Endgames", "".join(body)), encoding="utf-8")
+    write(cfg, "endgames", items)
     print("\n".join(out_lines))
-    print(f"wrote {path}")
+    print(f"{len(items)} in-depth items -> findings/endgames.json")
 
 
 if __name__ == "__main__":

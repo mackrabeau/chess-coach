@@ -5,6 +5,18 @@ Ideas worth exploring that aren't built yet, roughly grouped. Each: what, why, h
 
 ## Layer 1: analysis
 
+### Concept groups / clustering, all ML in the system (2026-11-12) — status: next big topic after the report rework
+- What: the middlegame and endgame groups (08's NMF "ideas", 17's slices, 24's motif × phase concepts) are
+  ambiguous to a player. Revisit the whole concept layer as one piece: what a group is, how it's found
+  (engineered features vs learned clusters vs SAE), and how it's named.
+- Why: findings are only coachable if a player recognises the group ("you allow forks in endgames" yes;
+  "idea 7" or "critical while pressing" no). 24's first real run found no stable concept-level difference,
+  which may mean the concepts are too coarse/wrong, not that there's nothing to find.
+- How: start from `docs/research.md` (to write: chess concept detection, Lichess puzzle themes, SAE on
+  chess models), then test candidate groupings with 24's machinery (peer-calibrated O/E + temporal holdout):
+  a grouping is good if it's nameable AND its player residuals replicate across time.
+- Risk: more concepts = more multiple-comparison noise; 24's shrinkage + holdout must stay the gate.
+
 ### Time management model (2026-11-17) — status: designed, not built
 - **Why**: critical positions with a forcing move while pressing are missed more than peers only with
   < 3 min left (at par with time); long thinks in "easy" positions go wrong often (34% vs 7% at the

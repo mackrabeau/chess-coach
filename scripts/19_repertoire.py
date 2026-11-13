@@ -19,7 +19,8 @@ within an engine budget per colour (resumable; the cache is shared with 14).
 Output:
   data/player/repertoire_white.pgn, repertoire_black.pgn (Lichess studies; one chapter per first
   opponent decision, e.g. 1.e4 c5 / 1.e4 e5 / ...; split at 64 chapters)
-  data/player/repertoire.html (decision points: where your usual move differs, ranked by how often x cost)
+  findings/repertoire.json: findings + the Opening tab's "In depth" table of decision points (where your usual
+  move differs, ranked by how often x cost)
 
     python scripts/19_repertoire.py --config configs/v0.yaml
     python scripts/19_repertoire.py --config configs/v0.yaml --band 2200-2399   # replies at a target level
@@ -27,7 +28,6 @@ Output:
 from __future__ import annotations
 
 import argparse
-import html
 import multiprocessing as mp
 import sys
 from pathlib import Path
@@ -41,10 +41,9 @@ import pandas as pd
 
 from coach.config import data_dir, load_config
 from coach.difficulty import player_maia_elo
-from coach.findings import elo_gain, example, finding, write as write_findings
+from coach.findings import detail, elo_gain, example, finding, table, write as write_findings
 from coach.maia import Maia, maia_lists
 from coach.openings import band_labels, evaluate, opening_engine, player_tree
-from coach.report import page, position_card
 from coach.study import chapter, write_studies
 
 REP = {"max_ply": 30, "reply_mass": 0.9, "min_reply_p": 0.05, "max_replies": 4, "min_prob": 0.002,
@@ -282,7 +281,7 @@ def main() -> None:
     print(f"replies from book band {band} (else Maia at {opp_elo:.0f}); engine {rc['nodes']:,} nodes, "
           f"budget {rc['budget']:,} new positions per colour")
 
-    all_cards, summary, files = [], [], []
+    dp_rows, summary, files = [], [], []
     for color, name in ((chess.WHITE, "white"), (chess.BLACK, "black")):
         print(f"\n[{name}]")
         mine, theirs, spent = build(color, cfg, rc, usual, book, opp_elo, maia, workers)
@@ -309,11 +308,9 @@ def main() -> None:
         for _, n, top, cost, cnt, score in dp[:10]:
             print(f"   {line_san(n['path'])} ... you play {san(n['fen'], top)} ({cnt}x, score {score:.2f}), "
                   f"better {san(n['fen'], n['rec'])} (+{100 * cost:.1f})")
-        for _, n, top, cost, cnt, score in dp[:15]:
-            r = pd.Series({"fen": n["fen"], "move": top, "best_move": n["rec"], "best_line": [n["rec"]],
-                           "played_line": [top], "wp_loss": cost, "phase": "opening"})
-            all_cards.append(position_card(r, note=f"{line_san(n['path'])} · you: {san(n['fen'], top)} "
-                                                   f"({cnt}x, score {score:.2f}) · better: {san(n['fen'], n['rec'])}"))
+        for _, n, top, cost, cnt, score in dp[:20]:
+            dp_rows.append([name, line_san(n["path"]), san(n["fen"], top), cnt, f"{score:.2f}",
+                            san(n["fen"], n["rec"]), f"+{100 * cost:.1f}"])
     # findings: decision points you still play the worse move in (latest game), as Elo gain
     last = recent.sort_values("date").groupby("epd").move.last()
     n_games = max(recent.game_id.nunique(), 1)
@@ -334,20 +331,16 @@ def main() -> None:
                               {"theme": "opening lines", "puzzles": [{"fen": r.fen, "solution": [r.best],
                                                                      "comment": f"Better than {san(r.fen, r.move)}.",
                                                                      "wrong": r.move}]},
-                              "The repertoire study has the follow-ups.", "repertoire.html"))
+                              "The repertoire study (Drills tab) has the follow-ups."))
+    if dp_rows:
+        fi.append(detail("rep:points", "opening", "Your repertoire: where your usual move can be better",
+                         f"An engine-best repertoire grown from the openings you play (your usual move is kept when it's "
+                         f"within {100 * rc['also_fine']:.0f} points of the best; replies from Lichess players {band}, or "
+                         "Maia where the book is thin). Ranked by how often you reach it × how much it costs. "
+                         + " ".join(summary) + " The full repertoire is in the Drills tab as Lichess studies.",
+                         table(["as", "line", "you play", "times", "your score", "better", "gain (points)"], dp_rows)))
     write_findings(cfg, "repertoire", fi)
-    body = ("<h1>Your lines, extended</h1>"
-            f"<p class='muted'>Engine-best repertoire grown from the openings you play. Your usual move is kept when "
-            f"it's within {100 * rc['also_fine']:.0f} points of the best. Replies: Lichess players {html.escape(band)} "
-            f"(book) or Maia where the book is thin. Study files: {', '.join(html.escape(p.name) for p in files)} "
-            f"(lichess.org/study → import PGN).</p>"
-            + "".join(f"<p>{html.escape(s)}</p>" for s in summary)
-            + "<h2>Where your usual move can be better</h2><p class='muted'>Red = your usual move, green = "
-              "recommended. Ranked by how often you reach it × how much it costs.</p>"
-            + f"<div class='grid'>{''.join(all_cards)}</div>")
-    out = data_dir(cfg, "player") / "repertoire.html"
-    out.write_text(page("Repertoire", body), encoding="utf-8")
-    print("\nwrote " + ", ".join(str(p) for p in files + [out]))
+    print("\nwrote " + ", ".join(str(p) for p in files) + " + findings/repertoire.json")
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ Focus on weaknesses, not on lines you already handle:
   4. must-know positions (one good move) you still miss, and opponents' opening mistakes you didn't
      punish (from 14).
   5. opening evolution over time (per opening per year: games, score, eval out of the opening) ->
-     data/player/openings_evolution.html (linked, not in the main report).
+     the Opening tab's "In depth" (with the out-of-the-opening tables 14 computed).
 
     python scripts/14b_opening_findings.py --config configs/v0.yaml
 """
@@ -33,9 +33,8 @@ import pandas as pd
 
 from coach.categories import annotate
 from coach.config import data_dir, load_config
-from coach.findings import elo_gain, example, finding, write
+from coach.findings import detail, elo_gain, example, finding, table, write
 from coach.openings import opening_engine, player_tree
-from coach.report import page
 from coach.results import load_analyzed
 
 OF = {"min_games": 6, "flag": 0.05, "good": 0.03, "regress": 0.03, "min_visits_regress": 6, "critical_gap": 0.10}
@@ -116,8 +115,7 @@ def main() -> None:
                                        ["score", f"{g.result.mean():.2f}", ""]]},
                              exs, {"theme": f"{f} as {col}: moves 10-15",
                                    "pos_ids": errs[errs.critical.astype(bool)].pos_id.head(64).tolist()},
-                             "Study the typical middlegame plans of this opening; drill the positions.",
-                             "openings_report.html"))
+                             "Study the typical middlegame plans of this opening; drill the positions."))
 
     # ---------------- 2. costly repeated moves, unless already fixed
     mine = tree[tree.mine & (tree.rating >= cmp_min)].sort_values("date")
@@ -141,7 +139,7 @@ def main() -> None:
                              {"theme": "opening lines", "puzzles": [{"fen": r.fen, "solution": [best],
                                                                     "comment": f"Not {san(r.fen, mv)} (-{100 * loss:.0f}).",
                                                                     "wrong": mv}]},
-                             "Learn the move; the repertoire study has the follow-ups.", "repertoire.html"))
+                             "Learn the move; the repertoire study (Drills tab) has the follow-ups."))
 
     # ---------------- 3. regressions over time
     allmine = tree[tree.mine].sort_values("date")
@@ -164,7 +162,7 @@ def main() -> None:
                                  f"<b>{san(r.fen, lm)}</b> (avg loss {100 * late:.1f}).", "lead", gain,
                                  "extra loss × recent times per game", None,
                                  [example(r.fen, [max(vals, key=vals.get)], [lm], f"{r.path} · {len(g)} visits")],
-                                 todo="Go back to the earlier move (or the engine's).", link="openings_evolution.html"))
+                                 todo="Go back to the earlier move (or the engine's)."))
 
     # ---------------- 4. must-know positions still missed, missed punishments (from 14)
     for e, g in mine.groupby("epd"):
@@ -198,20 +196,41 @@ def main() -> None:
                                                                         "comment": "Punish the mistake.",
                                                                         "wrong": c["move"]}]}))
 
-    # ---------------- 5. evolution over time (detailed page)
+    # ---------------- 5. in depth: out of the opening (from 14), evolution over time
+    ri_d = json.loads(ri.read_text()) if ri.exists() else {}
+    mv = ri_d.get("out_ply", oc.get("out_ply", 20)) // 2 + 1
+    if ri_d.get("out"):
+        o = ri_d["out"]
+        items.append(detail("open:out", "opening", f"Where you stand after the opening (move {mv})",
+                            f"Stockfish's win probability for you at move {mv}, your recent games vs Lichess peers "
+                            f"({ri_d.get('peer_band', 'your band')}) at the same point. Engine only: what your opponents "
+                            "usually play doesn't count.",
+                            table(["as", "you (90% CI)", "peers", "your games"],
+                                  [[c, f"{v['you']:.1%} [{v['lo']:.1%}, {v['hi']:.1%}]", f"{v['peers']:.1%}", v["n"]]
+                                   for c, v in o.items()])))
+    if ri_d.get("out_conv"):
+        items.append(detail("open:conv", "opening", "How your position after the opening turns into results",
+                            f"Your final score by how good your position was at move {mv}, vs peers.",
+                            table(["win prob at move " + str(mv), "your score (games)", "peers (games)"],
+                                  ri_d["out_conv"])))
+    if ri_d.get("by_opening"):
+        items.append(detail("open:by-opening", "opening", "Your openings: position after the opening and score",
+                            f"Openings you've played at least 8 times (recent games): win probability at move {mv}, "
+                            "compared with peers over all openings, and your score.",
+                            table(["as", "opening", "games", f"win prob at move {mv}", "vs peers (points)", "score"],
+                                  ri_d["by_opening"])))
     outs["year"] = outs.date.astype(str).str[:4]
     rows = []
     for (col, f), g in outs.groupby(["color", "family"]):
         if len(g) < fc["min_games"]:
             continue
         for y, gy in g.groupby("year"):
-            rows.append(f"<tr><td>{col}</td><td>{f}</td><td>{y}</td><td>{len(gy)}</td><td>{gy.result.mean():.2f}</td>"
-                        f"<td>{gy.wp.mean():.1%}</td></tr>")
-    (data_dir(cfg, "player") / "openings_evolution.html").write_text(page("Opening evolution",
-        "<h1>Your openings over time</h1><p class='muted'>Per opening and year: games, score, win prob out of the "
-        "opening (move 11). Regressed positions are listed in the main report.</p><table><tr><th>as</th>"
-        "<th>opening</th><th>year</th><th>games</th><th>score</th><th>out of opening</th></tr>" + "".join(rows)
-        + "</table>"), encoding="utf-8")
+            rows.append([col, f, y, len(gy), f"{gy.result.mean():.2f}", f"{gy.wp.mean():.1%}"])
+    if rows:
+        items.append(detail("open:evolution", "opening", "Your openings over the years",
+                            f"Per opening and year (all your games): games, score, win probability at move {mv}. "
+                            "Positions where you got worse over time are listed above as 'Regressed'.",
+                            table(["as", "opening", "year", "games", "score", f"win prob at move {mv}"], rows)))
 
     write(cfg, "openings", items)
     items.sort(key=lambda f: -(f["elo"] or 0))
